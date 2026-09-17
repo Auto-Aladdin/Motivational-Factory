@@ -11,6 +11,52 @@ from voice_engine import generate_voice
 from caption_engine import create_caption_plan
 
 
+
+# =====================================
+# MOTIVATIONAL VOICE PROFILE SYSTEM V5.4.1
+# =====================================
+
+VOICE_PROFILES = {
+
+    "stoic_male": {
+        "voice": "am_adam",
+        "description": "Deep philosophical authority",
+        "pace": "slow controlled delivery",
+        "emotion": "calm conviction",
+        "intensity": "medium",
+        "pause_style": "strategic pauses after important ideas"
+    },
+
+    "power_male": {
+        "voice": "am_michael",
+        "description": "Powerful cinematic motivational narration",
+        "pace": "controlled powerful delivery",
+        "emotion": "determined intensity",
+        "intensity": "high",
+        "pause_style": "dramatic emphasis on key moments"
+    },
+
+    "warm_female": {
+        "voice": "af_bella",
+        "description": "Warm reflective inspirational narration",
+        "pace": "natural expressive delivery",
+        "emotion": "empathetic",
+        "intensity": "medium",
+        "pause_style": "gentle reflective pauses"
+    },
+
+    "hopeful_female": {
+        "voice": "af_sarah",
+        "description": "Hopeful transformation-focused narration",
+        "pace": "uplifting cinematic delivery",
+        "emotion": "optimistic",
+        "intensity": "medium",
+        "pause_style": "positive emotional pauses"
+    }
+
+}
+
+
 OUTPUT = Path("output")
 OUTPUT.mkdir(exist_ok=True)
 
@@ -336,6 +382,39 @@ cinematic trailer.
 ================================================
 
 VOICE DIRECTION:
+
+Select the most suitable motivational narration profile.
+
+Available profiles:
+
+stoic_male:
+Voice: am_adam
+Use for philosophy, discipline, wisdom, self-control, and Stoic themes.
+
+power_male:
+Voice: am_michael
+Use for resilience, sacrifice, warrior mindset, intensity, and achievement.
+
+warm_female:
+Voice: af_bella
+Use for emotional reflection, healing, and personal growth.
+
+hopeful_female:
+Voice: af_sarah
+Use for transformation, hope, and positive change.
+
+Never imitate a real person.
+
+Control:
+- pacing
+- pauses
+- emotional delivery
+- intensity
+- emphasis on important philosophical phrases
+
+The narration should sound like premium motivational Shorts content.
+
+
 
 Choose delivery based on emotion.
 
