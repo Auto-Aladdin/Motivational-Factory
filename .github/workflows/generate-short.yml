@@ -1,0 +1,30 @@
+name: Generate Motivational Short Plan
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Generate AI Short Plan
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          cd src
+          python main.py
+
+      - name: Upload Generated Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: short-plan
+          path: cache/short_plan.json
