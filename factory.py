@@ -559,9 +559,24 @@ with open(
     )
 
 
+# ===============================
+# V6 VOICE + CAPTIONS
+# ===============================
 
+
+narration = final["narration"]
+
+
+generate_voice(
+    narration
+)
+
+
+create_caption_plan(
+    narration
+)
 
 
 print(
-"V5 CINEMATIC DIRECTOR COMPLETE"
+    "V6 VOICE ENGINE COMPLETE"
 )
