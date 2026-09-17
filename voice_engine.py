@@ -34,41 +34,46 @@ VOICE_OUTPUT = OUTPUT / "voice.wav"
 
 VOICE_PROFILES = {
 
-    "stoic_male":
-    {
+    "stoic_male": {
         "voice": "am_adam",
-        "speed": 0.90,
+        "speed": 0.86,
         "description":
-            "Deep calm mentor voice. Suitable for discipline, "
-            "stoicism, resilience and serious life lessons."
+            "Deep cinematic philosopher voice. Calm authority, "
+            "controlled wisdom, discipline and stoic reflection.",
+        "sentence_pause": 0.9,
+        "dramatic_pause": 1.4
     },
 
-    "power_male":
-    {
+    "power_male": {
         "voice": "am_michael",
+        "speed": 0.92,
+        "description":
+            "Powerful cinematic motivational voice. Controlled intensity, "
+            "determination and resilience.",
+        "sentence_pause": 0.7,
+        "dramatic_pause": 1.2
+    },
+
+    "warm_female": {
+        "voice": "af_bella",
+        "speed": 0.97,
+        "description":
+            "Warm documentary-style reflective voice for emotional "
+            "growth and human connection.",
+        "sentence_pause": 0.8,
+        "dramatic_pause": 1.1
+    },
+
+    "hopeful_female": {
+        "voice": "af_sarah",
         "speed": 0.95,
         "description":
-            "Confident motivational coach. Suitable for ambition, "
-            "challenges, failure and comeback stories."
-    },
-
-    "warm_female":
-    {
-        "voice": "af_bella",
-        "speed": 1.00,
-        "description":
-            "Warm emotional storyteller. Suitable for healing, "
-            "personal growth and emotional stories."
-    },
-
-    "hopeful_female":
-    {
-        "voice": "af_sarah",
-        "speed": 0.98,
-        "description":
-            "Inspirational supportive voice. Suitable for dreams, "
-            "hope, confidence and self-belief."
+            "Hopeful cinematic inspirational voice for transformation "
+            "and positive change.",
+        "sentence_pause": 0.8,
+        "dramatic_pause": 1.2
     }
+
 }
 
 
@@ -324,6 +329,51 @@ def select_voice_profile(narration):
 # EMOTIONAL PACING
 # =====================================================
 
+
+def apply_cinematic_performance(text, index, total):
+
+    """
+    Converts normal narration into a more deliberate
+    motivational performance style.
+    """
+
+    text = text.strip()
+
+    replacements = {
+        " but ": "... but ",
+        " because ": "... because ",
+        " however ": "... however ",
+        " the truth is ": "the truth is... ",
+        " remember ": "remember... "
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    # Stronger opening hook treatment
+    if index == 0:
+        text = "... " + text
+
+    # Final statement treatment
+    if index == total - 1:
+        text = text + " ..."
+
+    return text
+
+
+def get_sentence_pause(profile, index, total):
+
+    settings = VOICE_PROFILES.get(
+        profile,
+        VOICE_PROFILES[DEFAULT_PROFILE]
+    )
+
+    if index == total - 1:
+        return settings.get("dramatic_pause", 1.2)
+
+    return settings.get("sentence_pause", 0.8)
+
+
 def add_emotional_pauses(sentence):
 
     text = sentence
@@ -452,8 +502,10 @@ def generate_parts(narration):
 
     for index, sentence in enumerate(sentences):
 
-        processed = add_emotional_pauses(
-            sentence
+        processed = apply_cinematic_performance(
+            add_emotional_pauses(sentence),
+            index,
+            len(sentences)
         )
 
 
@@ -528,8 +580,10 @@ def generate_parts(narration):
         )
 
 
-        pause = calculate_pause(
-            sentence
+        pause = get_sentence_pause(
+            profile,
+            index,
+            len(sentences)
         )
 
 
@@ -689,7 +743,35 @@ def combine_audio(files):
         )
 
 
-    return VOICE_OUTPUT
+    return master_voice(VOICE_OUTPUT)
+
+
+# =====================================================
+# AUDIO MASTERING
+# =====================================================
+
+def master_voice(input_file):
+
+    output_file = OUTPUT / "voice_mastered.wav"
+
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_file),
+        "-af",
+        "loudnorm=I=-16:LRA=11:TP=-1.5,acompressor=threshold=-18dB:ratio=3:attack=20:release=250,equalizer=f=3000:t=q:w=1:g=-2",
+        str(output_file)
+    ]
+
+    subprocess.run(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=True
+    )
+
+    return output_file
 
 
 # =====================================================
