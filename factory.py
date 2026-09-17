@@ -20,13 +20,12 @@ OUTPUT.mkdir(exist_ok=True)
 # CLOUDFLARE AI GENERATION
 # =====================================
 
-def cloudflare_generate():
+def cloudflare_generate(feedback=""):
 
 
     account_id = os.environ[
         "CLOUDFLARE_ACCOUNT_ID"
     ]
-
 
     token = os.environ[
         "CLOUDFLARE_API_TOKEN"
@@ -54,17 +53,18 @@ def cloudflare_generate():
 
                 "role":"system",
 
-
                 "content":"""
 
 You are a professional motivational short film director.
 
 Create original motivational videos for YouTube Shorts.
 
-Rules:
+STRICT REQUIREMENTS:
 
-- Create a complete story.
 - Narration must be 70-150 words.
+- Write a complete spoken story.
+- Do not create a quote.
+- Do not create a short paragraph.
 - Strong first sentence hook.
 - Emotional progression.
 - Clear transformation.
@@ -72,18 +72,7 @@ Rules:
 - No famous quotes.
 - No copied phrases.
 
-Visual direction:
-
-Every scene must match the narration.
-
-Describe:
-
-subject
-action
-emotion
-environment
-camera style
-
+Every scene must visually match the narration.
 
 Return ONLY valid JSON.
 
@@ -97,10 +86,14 @@ Return ONLY valid JSON.
 
                 "role":"user",
 
-
-                "content":"""
+                "content":f"""
 
 Create one motivational short.
+
+Previous attempt feedback:
+
+{feedback}
+
 
 Choose a unique topic:
 
@@ -118,7 +111,8 @@ self belief
 
 Return exactly:
 
-{
+
+{{
 "title":"",
 "theme":"",
 "hook":"",
@@ -131,30 +125,34 @@ Return exactly:
 
 "scenes":[
 
-{
+{{
 "scene":1,
 
 "voice_line":"",
 
-"visual":{
+"visual":{{
 "subject":"",
 "action":"",
 "emotion":"",
 "environment":"",
 "camera":""
-},
+}},
 
 "pexels_query":"",
 "caption":""
 
-}
+}}
 
 ]
 
-}
+}}
 
 
 Create exactly 6 scenes.
+
+Remember:
+
+Narration MUST be 70-150 words.
 
 """
 
@@ -163,7 +161,7 @@ Create exactly 6 scenes.
         ],
 
 
-        "max_tokens":3500
+        "max_tokens":2800
 
     }
 
@@ -180,7 +178,6 @@ Create exactly 6 scenes.
 
             "Authorization":
             f"Bearer {token}",
-
 
             "Content-Type":
             "application/json"
@@ -211,14 +208,13 @@ Create exactly 6 scenes.
 
 
 
-    if isinstance(
-        result,
-        dict
-    ):
+    if isinstance(result,dict):
+
 
         if "response" in result:
 
             return result["response"]
+
 
 
     return result
@@ -234,10 +230,7 @@ Create exactly 6 scenes.
 def parse_json(data):
 
 
-    if isinstance(
-        data,
-        dict
-    ):
+    if isinstance(data,dict):
 
         return data
 
@@ -284,30 +277,61 @@ def parse_json(data):
 
 
 
-    # Remove invalid characters
+    # Remove invalid control characters
 
-    clean=clean.replace(
-        "\n",
-        " "
-    )
+    clean=re.sub(
 
+        r'[\x00-\x1f\x7f]',
 
-    clean=clean.replace(
-        "\r",
-        " "
-    )
+        ' ',
 
-
-    clean=clean.replace(
-        "\t",
-        " "
-    )
-
-
-
-    return json.loads(
         clean
+
     )
+
+
+
+    # Remove trailing commas
+
+    clean=re.sub(
+
+        r',\s*([}\]])',
+
+        r'\1',
+
+        clean
+
+    )
+
+
+
+    try:
+
+        return json.loads(
+            clean
+        )
+
+
+    except json.JSONDecodeError as e:
+
+
+        print(
+            "JSON decode failed:",
+            e
+        )
+
+
+        # Second repair pass
+
+        clean=clean.replace(
+            "\\'",
+            "'"
+        )
+
+
+        return json.loads(
+            clean
+        )
 
 
 
@@ -363,11 +387,26 @@ def validate(data):
 
     if words < 50:
 
+
         print(
             "Narration too short"
         )
 
+
         return False
+
+
+
+    if words > 180:
+
+
+        print(
+            "Narration too long"
+        )
+
+
+        return False
+
 
 
 
@@ -377,11 +416,14 @@ def validate(data):
 
     if len(scenes)!=6:
 
+
         print(
             "Wrong scene count"
         )
 
+
         return False
+
 
 
 
@@ -514,6 +556,8 @@ print(
 
 final=None
 
+last_error=""
+
 
 
 for attempt in range(3):
@@ -532,7 +576,9 @@ for attempt in range(3):
 
 
 
-        raw=cloudflare_generate()
+        raw=cloudflare_generate(
+            last_error
+        )
 
 
 
@@ -551,6 +597,15 @@ for attempt in range(3):
 
 
 
+        last_error=(
+
+            "Validation failed. "
+            "Narration must be longer "
+            "and contain a complete story."
+
+        )
+
+
         raise Exception(
             "Validation failed"
         )
@@ -564,6 +619,9 @@ for attempt in range(3):
             "ERROR:",
             e
         )
+
+
+        last_error=str(e)
 
 
         time.sleep(5)
