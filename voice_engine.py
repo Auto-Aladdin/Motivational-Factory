@@ -11,26 +11,31 @@ OUTPUT.mkdir(exist_ok=True)
 
 def generate_voice(text):
 
-    print("Generating MeloTTS voice...")
+    print(
+        "Generating MeloTTS voice..."
+    )
 
 
-    account_id = os.environ["CLOUDFLARE_ACCOUNT_ID"]
-    token = os.environ["CLOUDFLARE_API_TOKEN"]
+    account_id = os.environ[
+        "CLOUDFLARE_ACCOUNT_ID"
+    ]
+
+    token = os.environ[
+        "CLOUDFLARE_API_TOKEN"
+    ]
 
 
     url = (
+
         f"https://api.cloudflare.com/client/v4/accounts/"
         f"{account_id}/ai/run/@cf/myshell-ai/melotts"
+
     )
 
 
     payload = {
 
-        "text": text,
-
-        "speed": 1.0,
-
-        "speaker": "EN-US"
+        "prompt": text
 
     }
 
@@ -57,10 +62,14 @@ def generate_voice(text):
     )
 
 
+
     print(
+
         "Cloudflare TTS status:",
         response.status_code
+
     )
+
 
 
     if response.status_code != 200:
@@ -69,27 +78,50 @@ def generate_voice(text):
             response.text
         )
 
-        response.raise_for_status()
+        raise Exception(
+            "MeloTTS generation failed"
+        )
 
 
 
-    data=response.json()
+    data = response.json()
 
 
 
-    if not data.get("success"):
+    if not data.get(
+        "success"
+    ):
 
-        raise Exception(data)
+        raise Exception(
+            data
+        )
 
 
 
-    result=data["result"]
+    result=data.get(
+        "result"
+    )
 
 
 
-    if isinstance(result, dict):
+    if not result:
 
-        audio=result.get("audio")
+        raise Exception(
+            "Empty audio result"
+        )
+
+
+
+    # Cloudflare AI audio response handling
+
+    if isinstance(
+        result,
+        dict
+    ):
+
+        audio=result.get(
+            "audio"
+        )
 
     else:
 
@@ -100,14 +132,25 @@ def generate_voice(text):
     if not audio:
 
         raise Exception(
-            "No audio returned"
+            "Audio field missing"
         )
 
 
 
-    audio_bytes=base64.b64decode(
-        audio
-    )
+    try:
+
+        audio_bytes=base64.b64decode(
+            audio
+        )
+
+
+    except Exception:
+
+
+        audio_bytes=bytes(
+            audio,
+            "utf-8"
+        )
 
 
 
@@ -116,17 +159,25 @@ def generate_voice(text):
 
 
     with open(
+
         output_file,
+
         "wb"
+
     ) as f:
 
-        f.write(audio_bytes)
+        f.write(
+            audio_bytes
+        )
 
 
 
     print(
+
         "Voice generated:",
+
         output_file
+
     )
 
 
