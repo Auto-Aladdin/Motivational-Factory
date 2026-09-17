@@ -1,2 +1,3 @@
-requests
+kokoro
+soundfile
 python-dotenv
