@@ -6,11 +6,13 @@ on:
 permissions:
   contents: read
 
+
 jobs:
 
   create-short-plan:
 
     runs-on: ubuntu-latest
+
 
     steps:
 
@@ -29,34 +31,341 @@ jobs:
           pip install requests
 
 
-      - name: Create Factory Script
+      - name: Create Factory Engine
         run: |
+
           cat > factory.py <<'PY'
+
           import os
           import json
+          import re
+          import time
+          import requests
+          from pathlib import Path
 
-          print("Motivational Factory started")
 
-          print(
-              "Cloudflare:",
-              bool(os.environ.get("CLOUDFLARE_API_TOKEN"))
-          )
+          OUTPUT = Path("output")
+          OUTPUT.mkdir(exist_ok=True)
 
-          print(
-              "Pexels:",
-              bool(os.environ.get("PEXELS_API_KEY"))
-          )
 
-          with open("output_test.json","w") as f:
-              json.dump(
-                  {
-                    "status":"working"
+
+          def cloudflare_ai():
+
+              account = os.environ["CLOUDFLARE_ACCOUNT_ID"]
+              token = os.environ["CLOUDFLARE_API_TOKEN"]
+
+
+              url = (
+                  f"https://api.cloudflare.com/client/v4/accounts/"
+                  f"{account}/ai/run/"
+                  "@cf/meta/llama-3.1-8b-instruct"
+              )
+
+
+              payload = {
+
+                  "messages":[
+
+                      {
+                          "role":"system",
+                          "content":
+                          """
+                          You are a professional motivational Shorts writer.
+
+                          Create original motivational videos.
+
+                          Requirements:
+                          - 30 to 60 seconds
+                          - powerful hook
+                          - emotional progression
+                          - story based
+                          - no copied quotes
+                          - every scene must match narration
+                          - return only JSON
+                          """
+                      },
+
+
+                      {
+                          "role":"user",
+                          "content":
+                          """
+                          Create one motivational short about discipline.
+
+                          Return exactly:
+
+                          {
+                          "title":"",
+                          "theme":"",
+                          "hook":"",
+                          "narration":"",
+                          "scenes":[
+                            {
+                              "scene":1,
+                              "voice_line":"",
+                              "visual_description":"",
+                              "pexels_query":"",
+                              "caption":""
+                            }
+                          ]
+                          }
+
+                          Create exactly 6 scenes.
+                          """
+                      }
+
+                  ],
+
+                  "max_tokens":2500
+
+              }
+
+
+              r = requests.post(
+
+                  url,
+
+                  headers={
+                      "Authorization":f"Bearer {token}",
+                      "Content-Type":"application/json"
                   },
+
+                  json=payload,
+
+                  timeout=120
+
+              )
+
+
+              r.raise_for_status()
+
+              data = r.json()
+
+
+              return data["result"]["response"]
+
+
+
+          def extract_json(text):
+
+              text = text.replace(
+                  "```json",
+                  ""
+              )
+
+              text = text.replace(
+                  "```",
+                  ""
+              )
+
+
+              match = re.search(
+                  r"\{.*\}",
+                  text,
+                  re.DOTALL
+              )
+
+
+              if not match:
+                  raise Exception(
+                      "No JSON found"
+                  )
+
+
+              return json.loads(
+                  match.group()
+              )
+
+
+
+          def validate(data):
+
+              required = [
+                  "title",
+                  "theme",
+                  "hook",
+                  "narration",
+                  "scenes"
+              ]
+
+
+              for x in required:
+                  if x not in data:
+                      return False
+
+
+              if len(data["scenes"]) != 6:
+                  return False
+
+
+              for scene in data["scenes"]:
+
+                  for x in [
+                      "voice_line",
+                      "visual_description",
+                      "pexels_query",
+                      "caption"
+                  ]:
+
+                      if x not in scene:
+                          return False
+
+
+              return True
+
+
+
+          def pexels_search(query):
+
+              key = os.environ["PEXELS_API_KEY"]
+
+
+              r = requests.get(
+
+                  "https://api.pexels.com/videos/search",
+
+                  headers={
+                      "Authorization":key
+                  },
+
+                  params={
+                      "query":query,
+                      "per_page":3
+                  },
+
+                  timeout=30
+
+              )
+
+
+              r.raise_for_status()
+
+
+              data=r.json()
+
+
+              results=[]
+
+
+              for video in data.get(
+                  "videos",
+                  []
+              ):
+
+                  results.append(
+                      {
+                          "id":video["id"],
+                          "url":video["url"]
+                      }
+                  )
+
+
+              return results
+
+
+
+          print(
+              "Starting Motivational Factory"
+          )
+
+
+          final=None
+
+
+          for attempt in range(3):
+
+              try:
+
+                  print(
+                      "Attempt",
+                      attempt+1
+                  )
+
+
+                  raw = cloudflare_ai()
+
+                  data = extract_json(raw)
+
+
+                  if validate(data):
+
+                      final=data
+                      break
+
+
+                  raise Exception(
+                      "Invalid AI output"
+                  )
+
+
+              except Exception as e:
+
+                  print(
+                      e
+                  )
+
+                  time.sleep(5)
+
+
+
+          if final is None:
+
+              raise Exception(
+                  "Generation failed"
+              )
+
+
+
+          with open(
+              OUTPUT/"short_plan.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  final,
+                  f,
+                  indent=2,
+                  ensure_ascii=False
+              )
+
+
+
+          assets=[]
+
+
+          for scene in final["scenes"]:
+
+              assets.append(
+                  {
+                      "scene":scene["scene"],
+                      "query":scene["pexels_query"],
+                      "videos":pexels_search(
+                          scene["pexels_query"]
+                      )
+                  }
+              )
+
+
+
+          with open(
+              OUTPUT/"visual_assets.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  assets,
                   f,
                   indent=2
               )
 
-          print("Complete")
+
+          print(
+              "FACTORY COMPLETE"
+          )
+
+
           PY
 
 
@@ -70,8 +379,10 @@ jobs:
           python factory.py
 
 
-      - name: Upload Result
+      - name: Upload Generated Data
         uses: actions/upload-artifact@v4
         with:
-          name: factory-test
-          path: output_test.json
+
+          name: motivational-short-data
+
+          path: output/
