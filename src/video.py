@@ -1,1 +1,0 @@
-# FFmpeg rendering engine placeholder
