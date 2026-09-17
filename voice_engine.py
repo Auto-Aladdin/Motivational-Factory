@@ -25,12 +25,10 @@ def generate_voice(text):
 
 
     payload = {
-
-        "text": text,
-
-        "speaker": "EN-US-Male"
-
+        "prompt": text,
+        "voice": "en-US"
     }
+
 
 
     response = requests.post(
@@ -38,35 +36,47 @@ def generate_voice(text):
         url,
 
         headers={
-
             "Authorization":
             f"Bearer {token}",
 
             "Content-Type":
             "application/json"
-
         },
 
         json=payload,
 
         timeout=120
-
     )
 
 
-    response.raise_for_status()
+
+    if response.status_code != 200:
+
+        print(
+            "Cloudflare TTS Error:"
+        )
+
+        print(
+            response.text
+        )
+
+        response.raise_for_status()
 
 
-    result=response.json()
 
-
-    if "result" not in result:
-
-        raise Exception(result)
+    data=response.json()
 
 
 
-    audio=result["result"]
+    if not data.get("success"):
+
+        raise Exception(
+            data
+        )
+
+
+
+    result=data["result"]
 
 
 
@@ -74,32 +84,29 @@ def generate_voice(text):
 
 
 
-    # Cloudflare may return base64 audio
+    if isinstance(result,dict):
 
-    if isinstance(audio,str):
-
-        audio_bytes=base64.b64decode(audio)
-
-
-    elif isinstance(audio,dict):
-
-        if "audio" in audio:
-
-            audio_bytes=base64.b64decode(
-                audio["audio"]
-            )
-
-        else:
-
-            raise Exception(
-                "Audio data missing"
-            )
+        audio=result.get(
+            "audio"
+        )
 
     else:
 
+        audio=result
+
+
+
+    if not audio:
+
         raise Exception(
-            "Unknown audio format"
+            "No audio returned from MeloTTS"
         )
+
+
+
+    audio_bytes=base64.b64decode(
+        audio
+    )
 
 
 
@@ -113,7 +120,7 @@ def generate_voice(text):
 
 
     print(
-        "Voice created:",
+        "Voice saved:",
         output_file
     )
 
