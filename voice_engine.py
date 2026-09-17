@@ -1,9 +1,7 @@
 import os
-import re
 import json
 import time
-import base64
-import requests
+import subprocess
 from pathlib import Path
 
 
@@ -11,355 +9,424 @@ OUTPUT = Path("output")
 OUTPUT.mkdir(exist_ok=True)
 
 
-
-# =====================================
-# TEXT CLEANER
-# =====================================
-
-def clean_text(text):
-
-    text = str(text)
+VOICE_OUTPUT = OUTPUT / "voice.wav"
 
 
-    # Remove markdown
-    text = re.sub(
-        r"[*_#`]",
-        "",
-        text
-    )
+# =====================================================
+# SETTINGS
+# =====================================================
+
+VOICE = os.getenv(
+    "KOKORO_VOICE",
+    "af_bella"
+)
 
 
-    # Remove quotes that can break TTS
-    text = text.replace(
-        '"',
-        ""
-    )
+SPEED_MAP = {
 
-    text = text.replace(
-        "'",
-        ""
-    )
+    "calm":0.90,
 
+    "normal":1.0,
 
-    # Remove unusual symbols
-    text = re.sub(
-        r"[^\w\s.,!?-]",
-        "",
-        text
-    )
+    "powerful":0.92,
 
+    "dramatic":0.85
 
-    # Normalize spaces
-    text = " ".join(
-        text.split()
-    )
-
-
-    return text.strip()
+}
 
 
 
+# =====================================================
+# LOAD KOKORO
+# =====================================================
 
+def load_kokoro():
 
-# =====================================
-# SPLIT TEXT
-# =====================================
+    try:
 
-def split_text(text, limit=450):
+        from kokoro import KPipeline
 
-
-    sentences = re.split(
-        r'(?<=[.!?])\s+',
-        text
-    )
-
-
-    chunks=[]
-
-    current=""
-
-
-    for sentence in sentences:
-
-
-        if len(current)+len(sentence) < limit:
-
-            current += " " + sentence
-
-
-        else:
-
-            if current.strip():
-
-                chunks.append(
-                    current.strip()
-                )
-
-
-            current=sentence
-
-
-
-    if current.strip():
-
-        chunks.append(
-            current.strip()
+        return KPipeline(
+            lang_code="a"
         )
 
 
-    return chunks
+    except Exception as e:
+
+        raise Exception(
+            f"Kokoro import failed: {e}"
+        )
 
 
 
 
 
-# =====================================
-# CLOUDFLARE MELOTTS
-# =====================================
+# =====================================================
+# TEXT PREPROCESSING
+# =====================================================
 
-def call_melotts(text):
-
-
-    account_id=os.environ[
-        "CLOUDFLARE_ACCOUNT_ID"
-    ]
+def prepare_sentence(text, emotion):
 
 
-    token=os.environ[
-        "CLOUDFLARE_API_TOKEN"
-    ]
+    text=text.strip()
 
 
 
-    url=(
+    # Add dramatic pauses
 
-        f"https://api.cloudflare.com/client/v4/accounts/"
-        f"{account_id}/ai/run/@cf/myshell-ai/melotts"
+    replacements={
 
+        " but ":" ... but ",
+
+        " because ":" ... because ",
+
+        " however ":" ... however ",
+
+        " nobody ":" nobody... "
+
+    }
+
+
+    lower=text.lower()
+
+
+    for old,new in replacements.items():
+
+        if old in lower:
+
+            text=text.replace(
+                old,
+                new
+            )
+
+
+
+    # Emotional emphasis
+
+    if emotion=="powerful":
+
+        text = text.upper()
+
+
+
+    return text
+
+
+
+
+
+# =====================================================
+# NORMALIZE SCRIPT
+# =====================================================
+
+def load_voice_script(data):
+
+
+    if "voice_script" in data:
+
+        return data["voice_script"]
+
+
+
+    # Compatibility with old V5
+
+    if "narration" in data:
+
+
+        return [
+
+            {
+
+            "text":
+            data["narration"],
+
+            "emotion":
+            "normal",
+
+            "pause_after":
+            1.0
+
+            }
+
+        ]
+
+
+
+    raise Exception(
+        "No narration found"
     )
 
 
 
-    payload={
-
-        "prompt": text
-
-    }
 
 
+# =====================================================
+# GENERATE AUDIO
+# =====================================================
 
-    headers={
+def generate_voice_from_script(script):
 
-        "Authorization":
-        f"Bearer {token}",
 
-        "Content-Type":
-        "application/json"
-
-    }
+    pipeline=load_kokoro()
 
 
 
-    response=requests.post(
+    temp_files=[]
 
-        url,
 
-        headers=headers,
 
-        json=payload,
+    for index,item in enumerate(script):
 
-        timeout=180
+
+        text=item["text"]
+
+
+        emotion=item.get(
+            "emotion",
+            "normal"
+        )
+
+
+        pause=item.get(
+            "pause_after",
+            0
+        )
+
+
+
+        processed=prepare_sentence(
+            text,
+            emotion
+        )
+
+
+
+        speed=SPEED_MAP.get(
+            emotion,
+            1.0
+        )
+
+
+
+        filename=OUTPUT / f"voice_part_{index}.wav"
+
+
+
+        print(
+            f"Generating voice part {index+1}/{len(script)}"
+        )
+
+
+
+        generator=pipeline(
+
+            processed,
+
+            voice=VOICE,
+
+            speed=speed
+
+        )
+
+
+
+        for _,_,audio in generator:
+
+
+            import soundfile as sf
+
+
+            sf.write(
+
+                filename,
+
+                audio,
+
+                24000
+
+            )
+
+            break
+
+
+
+
+        temp_files.append(
+            filename
+        )
+
+
+
+        # Add silence after emotional beats
+
+        if pause > 0:
+
+            silence_file=OUTPUT / f"silence_{index}.wav"
+
+
+            subprocess.run(
+
+                [
+
+                "ffmpeg",
+
+                "-y",
+
+                "-f",
+
+                "lavfi",
+
+                "-i",
+
+                f"anullsrc=r=24000:cl=mono",
+
+                "-t",
+
+                str(pause),
+
+                str(silence_file)
+
+                ],
+
+                stdout=subprocess.DEVNULL,
+
+                stderr=subprocess.DEVNULL
+
+            )
+
+
+            temp_files.append(
+                silence_file
+            )
+
+
+
+
+    return combine_audio(
+        temp_files
+    )
+
+
+
+
+
+# =====================================================
+# JOIN AUDIO PARTS
+# =====================================================
+
+def combine_audio(files):
+
+
+    concat_file=OUTPUT/"concat.txt"
+
+
+
+    with open(
+        concat_file,
+        "w"
+    ) as f:
+
+
+        for file in files:
+
+            f.write(
+
+                f"file '{file}'\n"
+
+            )
+
+
+
+    subprocess.run(
+
+        [
+
+        "ffmpeg",
+
+        "-y",
+
+        "-f",
+
+        "concat",
+
+        "-safe",
+
+        "0",
+
+        "-i",
+
+        str(concat_file),
+
+        "-c",
+
+        "copy",
+
+        str(VOICE_OUTPUT)
+
+        ],
+
+        check=True
 
     )
 
 
 
     print(
-        "Cloudflare TTS status:",
-        response.status_code
+        "Voice created:",
+        VOICE_OUTPUT
     )
 
 
 
-    if response.status_code != 200:
-
-
-        try:
-
-            print(
-                json.dumps(
-                    response.json(),
-                    indent=2
-                )
-            )
-
-        except:
-
-            print(
-                response.text
-            )
-
-
-        raise Exception(
-            "Cloudflare MeloTTS failed"
-        )
-
-
-
-    data=response.json()
-
-
-
-    if not data.get("success"):
-
-        raise Exception(
-            "MeloTTS returned unsuccessful response"
-        )
-
-
-
-    result=data.get(
-        "result"
-    )
-
-
-
-    if not result:
-
-        raise Exception(
-            "No audio returned"
-        )
-
-
-
-    return result
+    return VOICE_OUTPUT
 
 
 
 
 
-# =====================================
-# MAIN VOICE GENERATOR
-# =====================================
+# =====================================================
+# MAIN ENTRY USED BY FACTORY.PY
+# =====================================================
 
 def generate_voice(narration):
 
 
     print(
-        "Generating MeloTTS voice..."
+        "Generating Kokoro motivational voice..."
     )
 
 
 
-    narration=clean_text(
-        narration
-    )
+    # If factory sends plain text
+
+    if isinstance(
+        narration,
+        str
+    ):
 
 
-
-    chunks=split_text(
-        narration
-    )
-
-
-
-    audio_parts=[]
-
-
-
-    for index,chunk in enumerate(chunks):
-
-
-        print(
-            f"TTS chunk {index+1}/{len(chunks)}"
-        )
-
-
-
-        success=False
-
-
-
-        for attempt in range(3):
-
-
-            try:
-
-
-                audio=call_melotts(
-                    chunk
-                )
-
-
-                audio_parts.append(
-                    audio
-                )
-
-
-                success=True
-
-                break
-
-
-
-            except Exception as e:
-
-
-                print(
-                    "TTS attempt failed:",
-                    e
-                )
-
-
-                time.sleep(5)
-
-
-
-
-        if not success:
-
-            raise Exception(
-                "MeloTTS chunk failed"
-            )
-
-
-
-    # Save response for later video pipeline
-
-    with open(
-
-        OUTPUT/"voice_response.json",
-
-        "w",
-
-        encoding="utf-8"
-
-    ) as f:
-
-
-        json.dump(
+        script=[
 
             {
 
-                "chunks":
-                audio_parts
+            "text":narration,
 
-            },
+            "emotion":"normal",
 
-            f,
+            "pause_after":1
 
-            indent=2
+            }
 
-        )
-
-
-
-    print(
-        "Voice generation complete"
-    )
+        ]
 
 
 
-    return str(
-        OUTPUT/"voice_response.json"
+    else:
+
+        script=narration
+
+
+
+    return generate_voice_from_script(
+        script
     )
