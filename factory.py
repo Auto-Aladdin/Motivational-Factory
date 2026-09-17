@@ -4,8 +4,11 @@ import re
 import time
 import requests
 from pathlib import Path
+
+
 from voice_engine import generate_voice
 from caption_engine import create_caption_plan
+
 
 
 OUTPUT = Path("output")
@@ -13,53 +16,209 @@ OUTPUT.mkdir(exist_ok=True)
 
 
 
-# ======================================
-# CLOUDFLARE AI
-# ======================================
+# =====================================
+# CLOUDFLARE AI GENERATION
+# =====================================
 
-def cloudflare_ai(messages, max_tokens=4000):
-
-
-    account=os.environ["CLOUDFLARE_ACCOUNT_ID"]
-    token=os.environ["CLOUDFLARE_API_TOKEN"]
+def cloudflare_generate():
 
 
-    url=(
+    account_id = os.environ[
+        "CLOUDFLARE_ACCOUNT_ID"
+    ]
+
+
+    token = os.environ[
+        "CLOUDFLARE_API_TOKEN"
+    ]
+
+
+
+    url = (
+
         f"https://api.cloudflare.com/client/v4/accounts/"
-        f"{account}/ai/run/@cf/meta/llama-3.1-8b-instruct"
+        f"{account_id}/ai/run/@cf/meta/llama-3.1-8b-instruct"
+
     )
 
 
-    r=requests.post(
+
+    payload = {
+
+
+        "messages":[
+
+
+            {
+
+
+                "role":"system",
+
+
+                "content":"""
+
+You are a professional motivational short film director.
+
+Create original motivational videos for YouTube Shorts.
+
+Rules:
+
+- Create a complete story.
+- Narration must be 70-150 words.
+- Strong first sentence hook.
+- Emotional progression.
+- Clear transformation.
+- Powerful ending.
+- No famous quotes.
+- No copied phrases.
+
+Visual direction:
+
+Every scene must match the narration.
+
+Describe:
+
+subject
+action
+emotion
+environment
+camera style
+
+
+Return ONLY valid JSON.
+
+"""
+
+            },
+
+
+            {
+
+
+                "role":"user",
+
+
+                "content":"""
+
+Create one motivational short.
+
+Choose a unique topic:
+
+discipline,
+failure,
+confidence,
+fear,
+success,
+growth,
+consistency,
+dreams,
+hard work,
+self belief
+
+
+Return exactly:
+
+{
+"title":"",
+"theme":"",
+"hook":"",
+"narration":"",
+"background_queries":[
+"",
+"",
+""
+],
+
+"scenes":[
+
+{
+"scene":1,
+
+"voice_line":"",
+
+"visual":{
+"subject":"",
+"action":"",
+"emotion":"",
+"environment":"",
+"camera":""
+},
+
+"pexels_query":"",
+"caption":""
+
+}
+
+]
+
+}
+
+
+Create exactly 6 scenes.
+
+"""
+
+            }
+
+        ],
+
+
+        "max_tokens":3500
+
+    }
+
+
+
+
+    response=requests.post(
+
 
         url,
 
+
         headers={
-            "Authorization":f"Bearer {token}",
-            "Content-Type":"application/json"
+
+            "Authorization":
+            f"Bearer {token}",
+
+
+            "Content-Type":
+            "application/json"
+
         },
 
-        json={
-            "messages":messages,
-            "max_tokens":max_tokens
-        },
+
+        json=payload,
+
 
         timeout=120
+
     )
 
 
-    r.raise_for_status()
+
+    response.raise_for_status()
 
 
-    result=r.json()["result"]
+
+    data=response.json()
 
 
-    if isinstance(result,dict):
 
-        return result.get(
-            "response",
-            result
-        )
+    result=data.get(
+        "result"
+    )
+
+
+
+    if isinstance(
+        result,
+        dict
+    ):
+
+        if "response" in result:
+
+            return result["response"]
 
 
     return result
@@ -68,204 +227,24 @@ def cloudflare_ai(messages, max_tokens=4000):
 
 
 
-# ======================================
-# V5 CINEMATIC DIRECTOR
-# ======================================
+# =====================================
+# JSON CLEANER
+# =====================================
 
-def generate_director_plan():
+def parse_json(data):
 
 
-    messages=[
+    if isinstance(
+        data,
+        dict
+    ):
 
+        return data
 
-{
-"role":"system",
 
-"content":"""
 
-You are a world-class motivational short film director,
-cinematic editor, SEO strategist and branding expert.
+    text=str(data)
 
-Create a premium motivational YouTube Short production plan.
-
-The style is:
-
-- cinematic
-- philosophical
-- emotional
-- luxury documentary
-- inspirational
-
-
-Avoid:
-
-- random stock footage
-- generic quotes
-- childish designs
-- simple slideshow feeling
-
-
-The video should feel like a professional motivational channel.
-
-
-Create:
-
-
-1. Motivational concept
-
-2. Cinematic visual world
-
-Examples:
-
-- Stoic philosophy
-- Ancient warriors
-- Modern success
-- Nature transformation
-- Human resilience
-
-
-3. Background strategy.
-
-Use Pexels-friendly searches.
-
-Prefer:
-
-- statues
-- landscapes
-- architecture
-- silhouettes
-- cinematic environments
-
-
-4. Narration:
-
-90-130 words.
-
-Structure:
-
-Hook
-Problem
-Realization
-Transformation
-Final lesson
-
-
-5. Caption design:
-
-Create viral short-form captions.
-
-Rules:
-
-- Large centered text
-- Word emphasis
-- Mobile readable
-- Premium typography
-
-
-6. SEO:
-
-Generate:
-
-- title
-- description
-- hashtags
-
-
-Return ONLY JSON.
-
-"""
-},
-
-
-{
-"role":"user",
-
-"content":"""
-
-Create one motivational Short.
-
-Return:
-
-
-{
-
-"title":"",
-
-"theme":"",
-
-"narration":"",
-
-
-"visual_world":{
-
-"concept":"",
-"mood":"",
-"style":"",
-"color_palette":[]
-},
-
-
-"background_queries":[
-
-""
-
-],
-
-
-"quote_overlays":[
-
-""
-
-],
-
-
-"caption_style":{
-
-"font":"",
-"animation":"",
-"primary_color":"",
-"secondary_color":""
-
-},
-
-
-"seo":{
-
-"title":"",
-"description":"",
-"hashtags":[]
-
-}
-
-
-}
-
-
-"""
-}
-
-]
-
-
-    return cloudflare_ai(messages)
-
-
-
-
-
-# ======================================
-# JSON PARSER
-# ======================================
-
-def parse_json(text):
-
-
-    if isinstance(text,dict):
-
-        return text
-
-
-    text=str(text)
 
 
     text=text.replace(
@@ -273,37 +252,70 @@ def parse_json(text):
         ""
     )
 
+
     text=text.replace(
         "```",
         ""
     )
 
 
+
     match=re.search(
+
         r"\{.*\}",
+
         text,
+
         re.DOTALL
+
     )
+
 
 
     if not match:
 
         raise Exception(
-            "JSON missing"
+            "JSON not found"
         )
 
 
+
+    clean=match.group()
+
+
+
+    # Remove invalid characters
+
+    clean=clean.replace(
+        "\n",
+        " "
+    )
+
+
+    clean=clean.replace(
+        "\r",
+        " "
+    )
+
+
+    clean=clean.replace(
+        "\t",
+        " "
+    )
+
+
+
     return json.loads(
-        match.group()
+        clean
     )
 
 
 
 
 
-# ======================================
+# =====================================
 # VALIDATION
-# ======================================
+# =====================================
 
 def validate(data):
 
@@ -312,13 +324,13 @@ def validate(data):
 
         "title",
         "theme",
+        "hook",
         "narration",
-        "visual_world",
-        "background_queries",
-        "caption_style",
-        "seo"
+        "scenes",
+        "background_queries"
 
     ]
+
 
 
     for item in required:
@@ -326,7 +338,7 @@ def validate(data):
         if item not in data:
 
             print(
-                "Missing",
+                "Missing:",
                 item
             )
 
@@ -335,8 +347,11 @@ def validate(data):
 
 
     words=len(
+
         data["narration"].split()
+
     )
+
 
 
     print(
@@ -345,16 +360,65 @@ def validate(data):
     )
 
 
+
     if words < 50:
 
+        print(
+            "Narration too short"
+        )
+
+        return False
+
+
+
+    scenes=data["scenes"]
+
+
+
+    if len(scenes)!=6:
+
+        print(
+            "Wrong scene count"
+        )
+
         return False
 
 
-    if len(
-        data["background_queries"]
-    ) < 3:
 
-        return False
+
+    for scene in scenes:
+
+
+        if "visual" not in scene:
+
+            return False
+
+
+
+        visual=scene["visual"]
+
+
+
+        for key in [
+
+            "subject",
+            "action",
+            "emotion",
+            "environment",
+            "camera"
+
+        ]:
+
+
+            if not visual.get(key):
+
+                print(
+                    "Missing visual:",
+                    key
+                )
+
+                return False
+
 
 
     return True
@@ -363,27 +427,36 @@ def validate(data):
 
 
 
-# ======================================
-# PEXELS
-# ======================================
+# =====================================
+# PEXELS SEARCH
+# =====================================
 
 def pexels_search(query):
 
 
-    key=os.environ["PEXELS_API_KEY"]
+    key=os.environ[
+        "PEXELS_API_KEY"
+    ]
 
 
-    r=requests.get(
+
+    response=requests.get(
 
         "https://api.pexels.com/videos/search",
 
         headers={
-            "Authorization":key
+
+            "Authorization":
+            key
+
         },
 
         params={
+
             "query":query,
+
             "per_page":3
+
         },
 
         timeout=30
@@ -391,13 +464,17 @@ def pexels_search(query):
     )
 
 
-    r.raise_for_status()
+
+    response.raise_for_status()
 
 
-    data=r.json()
+
+    data=response.json()
 
 
-    output=[]
+
+    results=[]
+
 
 
     for video in data.get(
@@ -405,24 +482,29 @@ def pexels_search(query):
         []
     ):
 
-        output.append({
 
-            "id":video["id"],
+        results.append({
 
-            "url":video["url"]
+            "id":
+            video["id"],
+
+            "url":
+            video["url"]
 
         })
 
 
-    return output
+
+    return results
 
 
 
 
 
-# ======================================
-# PIPELINE
-# ======================================
+# =====================================
+# MAIN PIPELINE
+# =====================================
+
 
 print(
 "Starting Motivational Factory V5"
@@ -434,25 +516,34 @@ final=None
 
 
 
-for attempt in range(5):
+for attempt in range(3):
 
 
     try:
 
 
         print(
-            "Attempt",
+
+            "Generation attempt",
+
             attempt+1
+
         )
 
 
-        raw=generate_director_plan()
+
+        raw=cloudflare_generate()
 
 
-        data=parse_json(raw)
+
+        data=parse_json(
+            raw
+        )
+
 
 
         if validate(data):
+
 
             final=data
 
@@ -460,7 +551,14 @@ for attempt in range(5):
 
 
 
+        raise Exception(
+            "Validation failed"
+        )
+
+
+
     except Exception as e:
+
 
         print(
             "ERROR:",
@@ -468,7 +566,7 @@ for attempt in range(5):
         )
 
 
-    time.sleep(5)
+        time.sleep(5)
 
 
 
@@ -476,15 +574,20 @@ for attempt in range(5):
 
 if final is None:
 
+
     raise Exception(
-        "V5 generation failed"
+
+        "Could not create valid Short"
+
     )
 
 
 
 
 
-# Save production brief
+# =====================================
+# SAVE PLAN
+# =====================================
 
 
 with open(
@@ -514,20 +617,47 @@ with open(
 
 
 
-# Generate Pexels assets
+# =====================================
+# PEXELS ASSETS
+# =====================================
 
 
 assets=[]
 
 
-for query in final["background_queries"]:
+
+for scene in final["scenes"]:
+
+
+    print(
+
+        "Searching Pexels:",
+
+        scene["pexels_query"]
+
+    )
+
 
 
     assets.append({
 
-        "query":query,
+        "scene":
 
-        "videos":pexels_search(query)
+        scene["scene"],
+
+
+        "visual":
+
+        scene["visual"],
+
+
+        "videos":
+
+        pexels_search(
+
+            scene["pexels_query"]
+
+        )
 
     })
 
@@ -559,12 +689,16 @@ with open(
     )
 
 
-# ===============================
-# V6 VOICE + CAPTIONS
-# ===============================
 
 
-narration = final["narration"]
+
+# =====================================
+# VOICE + CAPTIONS
+# =====================================
+
+
+narration=final["narration"]
+
 
 
 generate_voice(
@@ -572,11 +706,13 @@ generate_voice(
 )
 
 
+
 create_caption_plan(
     narration
 )
 
 
+
 print(
-    "V6 VOICE ENGINE COMPLETE"
+"FACTORY V5 + VOICE ENGINE COMPLETE"
 )
