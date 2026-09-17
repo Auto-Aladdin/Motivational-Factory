@@ -55,12 +55,12 @@ def save_history(data):
         "theme":
         data.get("theme", ""),
 
-        "story_archetype":
+        "philosophical_theme":
         data.get(
             "creative_direction",
             {}
         ).get(
-            "story_archetype",
+            "philosophical_theme",
             ""
         ),
 
@@ -124,7 +124,7 @@ def cloudflare_generate(feedback=""):
         previous_patterns += (
             f"\n- Theme: {item.get('theme', '')}"
             f"\n- Style: {item.get('visual_style', '')}"
-            f"\n- Archetype: {item.get('story_archetype', '')}\n"
+            f"\n- Archetype: {item.get('philosophical_theme', '')}\n"
         )
 
     payload = {
@@ -136,6 +136,24 @@ def cloudflare_generate(feedback=""):
                 "role": "system",
 
                 "content": """
+You are an expert motivational philosophy content director, cinematic short-form producer, and creative strategist.
+
+Your mission is to create premium motivational philosophy Shorts, not fictional stories.
+
+Every video must introduce a fresh, hooky, and interesting motivational philosophy.
+Avoid recycled quotes, generic advice lists, repeated templates, and minor variations of previous ideas.
+
+Focus on:
+- stoic principles
+- mindset shifts
+- discipline philosophies
+- resilience concepts
+- universal human insights
+
+The viewer should experience a powerful idea, perspective shift, or realization rather than follow a character journey.
+
+Automation should automate production, not creativity.
+
 You are a professional cinematic motivational
 film director, screenwriter, and creative producer.
 
@@ -390,7 +408,7 @@ Previous validation feedback:
 
 Choose a unique combination.
 
-Story archetype:
+Motivational philosophy direction:
 
 - discipline journey
 - failure transformation
@@ -401,7 +419,7 @@ Story archetype:
 - sacrifice and achievement
 - courage against uncertainty
 
-Emotional journey:
+Philosophical progression:
 
 - darkness to light
 - doubt to confidence
@@ -419,7 +437,7 @@ Return exactly:
     "narration": "",
 
     "creative_direction": {{
-        "story_archetype": "",
+        "philosophical_theme": "",
         "emotional_arc": "",
         "visual_style": "",
         "color_mood": "",
@@ -462,7 +480,7 @@ Return exactly:
 
     "quality_score": {{
         "originality": 0,
-        "emotional_depth": 0,
+        "philosophical_depth": 0,
         "visual_strength": 0,
         "repetition_risk": 0,
         "final_decision": ""
@@ -471,7 +489,7 @@ Return exactly:
 
 Requirements:
 
-- Exactly 6 scenes.
+- Create 5-8 cinematic visual moments. Do not force unnecessary scene changes.
 - Narration 70-150 words.
 - Every scene must feel cinematic.
 - Every scene must correspond to its narration beat.
@@ -602,7 +620,15 @@ GENERIC_VISUAL_PATTERNS = [
 
     "generic office worker",
 
-    "social media influencer"
+    "social media influencer",
+
+    "protagonist",
+
+    "character journey",
+
+    "he woke up",
+
+    "she woke up"
 
 ]
 
@@ -676,10 +702,10 @@ def validate(data):
 
         return False
 
-    if len(scenes) != 6:
+    if len(scenes) < 5 or len(scenes) > 8:
 
         print(
-            "Wrong scene count"
+            "Invalid scene count. Expected 5-8 cinematic visual moments."
         )
 
         return False
@@ -782,7 +808,7 @@ def validate(data):
 
     for key in [
 
-        "story_archetype",
+        "philosophical_theme",
         "emotional_arc",
         "visual_style",
         "color_mood",
@@ -846,7 +872,7 @@ def validate(data):
 QUALITY_MINIMUMS = {
 
     "originality": 7,
-    "emotional_depth": 7,
+    "philosophical_depth": 7,
     "visual_strength": 7
 
 }
@@ -937,7 +963,7 @@ originality:
 Does the concept feel fresh and meaningfully
 different from generic AI motivation?
 
-emotional_depth:
+philosophical_depth:
 Does the story contain a believable emotional
 journey rather than generic motivational advice?
 
@@ -960,7 +986,7 @@ PASS
 only when:
 
 originality >= 7
-emotional_depth >= 7
+philosophical_depth >= 7
 visual_strength >= 7
 repetition_risk <= 4
 
@@ -974,7 +1000,7 @@ Format:
 
 {
     "originality": 0,
-    "emotional_depth": 0,
+    "philosophical_depth": 0,
     "visual_strength": 0,
     "repetition_risk": 0,
     "final_decision": "PASS"
@@ -1087,9 +1113,9 @@ Format:
             )
         )
 
-        emotional_depth = int(
+        philosophical_depth = int(
             quality.get(
-                "emotional_depth",
+                "philosophical_depth",
                 0
             )
         )
@@ -1120,9 +1146,9 @@ Format:
         min(10, originality)
     )
 
-    emotional_depth = max(
+    philosophical_depth = max(
         1,
-        min(10, emotional_depth)
+        min(10, philosophical_depth)
     )
 
     visual_strength = max(
@@ -1141,7 +1167,7 @@ Format:
 
         decision = "REGENERATE"
 
-    if emotional_depth < QUALITY_MINIMUMS["emotional_depth"]:
+    if philosophical_depth < QUALITY_MINIMUMS["philosophical_depth"]:
 
         decision = "REGENERATE"
 
@@ -1158,8 +1184,8 @@ Format:
         "originality":
         originality,
 
-        "emotional_depth":
-        emotional_depth,
+        "philosophical_depth":
+        philosophical_depth,
 
         "visual_strength":
         visual_strength,
@@ -1184,7 +1210,7 @@ Format:
     )
 
     print(
-        f"  Emotional Depth: {emotional_depth}/10"
+        f"  Emotional Depth: {philosophical_depth}/10"
     )
 
     print(
@@ -1368,7 +1394,7 @@ for attempt in range(5):
                 f"{quality.get('originality', 0)}/10, "
 
                 f"Emotional depth="
-                f"{quality.get('emotional_depth', 0)}/10, "
+                f"{quality.get('philosophical_depth', 0)}/10, "
 
                 f"Visual strength="
                 f"{quality.get('visual_strength', 0)}/10, "
