@@ -11,14 +11,15 @@ OUTPUT.mkdir(exist_ok=True)
 
 
 
-# =====================================
-# CLOUDFLARE AI
-# =====================================
+# ==========================================
+# CLOUDFLARE AI REQUEST
+# ==========================================
 
-def cloudflare_request(messages, max_tokens=3500):
+def cloudflare_request(messages, max_tokens=4000):
 
     account_id = os.environ["CLOUDFLARE_ACCOUNT_ID"]
     token = os.environ["CLOUDFLARE_API_TOKEN"]
+
 
     url = (
         f"https://api.cloudflare.com/client/v4/accounts/"
@@ -46,12 +47,11 @@ def cloudflare_request(messages, max_tokens=3500):
 
     response.raise_for_status()
 
-    data=response.json()
 
-    result=data["result"]
+    result=response.json()["result"]
 
 
-    if isinstance(result, dict):
+    if isinstance(result,dict):
 
         return result.get(
             "response",
@@ -65,39 +65,97 @@ def cloudflare_request(messages, max_tokens=3500):
 
 
 
-def cloudflare_generate():
+# ==========================================
+# STORY DIRECTOR GENERATION
+# ==========================================
+
+def generate_short():
 
 
     messages=[
+
 
     {
     "role":"system",
     "content":"""
 
-You are a professional motivational Shorts writer.
+You are an elite motivational Shorts director,
+screenwriter and visual storyteller.
 
-Create cinematic motivational videos.
+Create a complete cinematic short video blueprint.
 
-IMPORTANT:
+The video must feel like a real motivational film,
+not a quote slideshow.
 
-The narration must be between 90 and 130 words.
+Requirements:
 
-Do not create short quotes.
-Do not summarize.
-Write a complete spoken narration.
+Narration:
+- 90-130 words
+- Strong first sentence hook
+- Emotional journey
+- Clear lesson
+- Powerful ending
 
-The narration should contain:
+Story structure:
 
-- powerful opening hook
-- struggle
-- emotional realization
-- lesson
-- transformation
-- memorable ending
+1 Hook
+2 Struggle
+3 Internal conflict
+4 Realization
+5 Action
+6 Transformation
 
-Create exactly 6 scenes.
 
-Every scene must visually represent the exact spoken line.
+Create ONE main protagonist.
+
+Character consistency:
+
+Define:
+
+- name
+- age
+- appearance
+- clothing style
+- personality
+
+Every scene must use the same person.
+
+
+Visual direction:
+
+Every scene requires:
+
+subject
+action
+emotion
+environment
+camera
+lighting
+visual_style
+
+
+Important:
+
+The visual must show the exact narration moment.
+
+Do not create:
+- random inspirational images
+- people simply standing
+- unrelated scenery
+
+
+Pexels queries:
+
+Create simple searchable keywords.
+
+Example:
+
+Bad:
+"lonely entrepreneur facing his deepest fears"
+
+Good:
+"person working alone office night"
+
 
 Return ONLY JSON.
 
@@ -109,47 +167,76 @@ Return ONLY JSON.
     "role":"user",
     "content":"""
 
-Create a unique motivational Short.
+Create a motivational Short.
 
-Topic examples:
+Choose a unique topic:
 
-discipline,
-failure,
-fear,
-success,
-dreams,
-confidence,
-consistency,
-personal growth.
+discipline
+failure
+confidence
+fear
+dreams
+success
+consistency
+hard work
+personal growth
+resilience
 
-Avoid common repeated motivational phrases.
 
-JSON format:
+Return exactly:
 
 {
+
 "title":"",
 "theme":"",
 "hook":"",
+
+"character":{
+
+"name":"",
+"age":"",
+"appearance":"",
+"clothing":"",
+"personality":""
+
+},
+
+
 "narration":"",
+
+
 "scenes":[
 
 {
+
 "scene":1,
+
 "voice_line":"",
+
 "visual":{
+
 "subject":"",
 "action":"",
 "emotion":"",
 "environment":"",
-"camera":""
+"camera":"",
+"lighting":"",
+"visual_style":""
+
 },
+
 "pexels_query":"",
+
 "caption":""
+
 }
 
 ]
 
 }
+
+
+Create exactly 6 scenes.
 
 """
     }
@@ -157,20 +244,23 @@ JSON format:
     ]
 
 
-    return cloudflare_request(messages)
+    return cloudflare_request(
+        messages
+    )
 
 
 
 
-# =====================================
+
+# ==========================================
 # NARRATION REPAIR
-# =====================================
+# ==========================================
 
-def expand_narration(short_text):
+def repair_narration(text):
 
 
     print(
-        "Expanding short narration..."
+        "Repairing narration..."
     )
 
 
@@ -180,45 +270,44 @@ def expand_narration(short_text):
     "role":"system",
     "content":"""
 
-You are a professional motivational speech editor.
-
-Expand the narration naturally.
+Rewrite this motivational narration.
 
 Rules:
 
-- Keep original meaning
+- Keep the same meaning
 - Make it emotional
 - Make it cinematic
-- Final length 90-130 words
-- No famous quotes
+- 90-130 words
+- Strong ending
 
-Return only the narration text.
+Return only narration.
 
 """
     },
 
+
     {
     "role":"user",
-    "content":short_text
+    "content":text
     }
 
     ]
 
 
-    result=cloudflare_request(
-        messages,
-        max_tokens=800
+    return str(
+        cloudflare_request(
+            messages,
+            800
+        )
     )
 
 
-    return str(result)
 
 
 
-
-# =====================================
-# JSON PARSER
-# =====================================
+# ==========================================
+# JSON CLEANER
+# ==========================================
 
 def parse_json(data):
 
@@ -236,6 +325,7 @@ def parse_json(data):
         ""
     )
 
+
     text=text.replace(
         "```",
         ""
@@ -252,7 +342,7 @@ def parse_json(data):
     if not match:
 
         raise Exception(
-            "JSON not found"
+            "JSON missing"
         )
 
 
@@ -264,9 +354,9 @@ def parse_json(data):
 
 
 
-# =====================================
+# ==========================================
 # VALIDATION
-# =====================================
+# ==========================================
 
 def validate(data):
 
@@ -274,19 +364,19 @@ def validate(data):
     required=[
         "title",
         "theme",
-        "hook",
+        "character",
         "narration",
         "scenes"
     ]
 
 
-    for key in required:
+    for item in required:
 
-        if key not in data:
+        if item not in data:
 
             print(
-                "Missing:",
-                key
+                "Missing",
+                item
             )
 
             return False
@@ -299,44 +389,46 @@ def validate(data):
 
 
     print(
-        "Narration words:",
+        "Narration:",
         words
     )
 
 
-    # Accept draft because repair exists
     if words < 25:
 
-        print(
-            "Narration unusable"
-        )
-
         return False
-
-
-
-    if words > 200:
-
-        return False
-
 
 
     if len(data["scenes"]) != 6:
 
-        print(
-            "Invalid scenes"
-        )
-
         return False
+
+
+
+    character=data["character"]
+
+
+    for key in [
+        "name",
+        "age",
+        "appearance",
+        "clothing",
+        "personality"
+    ]:
+
+        if not character.get(key):
+
+            return False
 
 
 
     for scene in data["scenes"]:
 
 
-        if "visual" not in scene:
-
-            return False
+        visual=scene.get(
+            "visual",
+            {}
+        )
 
 
         for key in [
@@ -345,13 +437,25 @@ def validate(data):
             "action",
             "emotion",
             "environment",
-            "camera"
+            "camera",
+            "lighting",
+            "visual_style"
 
         ]:
 
-            if not scene["visual"].get(key):
+
+            if not visual.get(key):
 
                 return False
+
+
+
+        if not scene.get(
+            "pexels_query"
+        ):
+
+            return False
+
 
 
     return True
@@ -360,9 +464,9 @@ def validate(data):
 
 
 
-# =====================================
+# ==========================================
 # PEXELS
-# =====================================
+# ==========================================
 
 def pexels_search(query):
 
@@ -370,7 +474,7 @@ def pexels_search(query):
     key=os.environ["PEXELS_API_KEY"]
 
 
-    r=requests.get(
+    response=requests.get(
 
         "https://api.pexels.com/videos/search",
 
@@ -379,19 +483,21 @@ def pexels_search(query):
         },
 
         params={
+
             "query":query,
+
             "per_page":3
+
         },
 
         timeout=30
-
     )
 
 
-    r.raise_for_status()
+    response.raise_for_status()
 
 
-    data=r.json()
+    data=response.json()
 
 
     videos=[]
@@ -405,6 +511,7 @@ def pexels_search(query):
         videos.append({
 
             "id":video["id"],
+
             "url":video["url"]
 
         })
@@ -416,13 +523,13 @@ def pexels_search(query):
 
 
 
-# =====================================
-# MAIN PIPELINE
-# =====================================
+# ==========================================
+# MAIN
+# ==========================================
 
 
 print(
-"Starting Motivational Factory V3"
+"Starting Motivational Factory V4"
 )
 
 
@@ -442,7 +549,7 @@ for attempt in range(5):
         )
 
 
-        raw=cloudflare_generate()
+        raw=generate_short()
 
 
         data=parse_json(raw)
@@ -452,21 +559,13 @@ for attempt in range(5):
         if validate(data):
 
 
-            words=len(
+            if len(
                 data["narration"].split()
-            )
+            ) < 90:
 
 
-            if words < 90:
-
-
-                data["narration"]=expand_narration(
+                data["narration"]=repair_narration(
                     data["narration"]
-                )
-
-
-                print(
-                    "Narration repaired"
                 )
 
 
@@ -490,10 +589,12 @@ for attempt in range(5):
 
 
 
+
 if final is None:
 
+
     raise Exception(
-        "Generation failed"
+        "Could not create Short"
     )
 
 
@@ -512,10 +613,15 @@ with open(
 
 
     json.dump(
+
         final,
+
         f,
+
         indent=2,
+
         ensure_ascii=False
+
     )
 
 
@@ -525,6 +631,7 @@ with open(
 assets=[]
 
 
+
 for scene in final["scenes"]:
 
 
@@ -532,18 +639,14 @@ for scene in final["scenes"]:
 
         "scene":scene["scene"],
 
+        "character":final["character"],
+
         "visual":scene["visual"],
 
-        "query":scene.get(
-            "pexels_query",
-            ""
-        ),
+        "query":scene["pexels_query"],
 
         "videos":pexels_search(
-            scene.get(
-                "pexels_query",
-                "cinematic motivation"
-            )
+            scene["pexels_query"]
         )
 
     })
@@ -564,10 +667,15 @@ with open(
 
 
     json.dump(
+
         assets,
+
         f,
+
         indent=2,
+
         ensure_ascii=False
+
     )
 
 
@@ -575,5 +683,5 @@ with open(
 
 
 print(
-"FACTORY V3 COMPLETE"
+"FACTORY V4 COMPLETE"
 )
