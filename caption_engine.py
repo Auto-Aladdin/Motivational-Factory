@@ -1,10 +1,241 @@
 import json
+import re
 from pathlib import Path
 
 
-OUTPUT=Path("output")
+OUTPUT = Path("output")
+OUTPUT.mkdir(exist_ok=True)
 
 
+CAPTION_OUTPUT = OUTPUT / "caption_plan.json"
+
+
+
+# =====================================================
+# COLOR SYSTEM
+# =====================================================
+
+COLORS = {
+
+    "normal":
+    "#FFFFFF",
+
+    "highlight":
+    "#F3CE32",
+
+    "pain":
+    "#FF4D4D",
+
+    "hope":
+    "#45E6FF"
+
+}
+
+
+
+# =====================================================
+# WORD CLASSIFICATION
+# =====================================================
+
+HIGH_IMPACT_WORDS = [
+
+    "discipline",
+    "success",
+    "failure",
+    "fear",
+    "dream",
+    "focus",
+    "growth",
+    "change",
+    "future",
+    "strength",
+    "power",
+    "believe",
+    "confidence",
+    "never",
+    "impossible",
+    "winner",
+    "quit",
+    "sacrifice"
+
+]
+
+
+
+PAIN_WORDS = [
+
+    "failure",
+    "lost",
+    "pain",
+    "struggle",
+    "fear",
+    "broken",
+    "hurt",
+    "quit"
+
+]
+
+
+
+HOPE_WORDS = [
+
+    "hope",
+    "future",
+    "dream",
+    "growth",
+    "believe",
+    "success",
+    "confidence"
+
+]
+
+
+
+# =====================================================
+# CLEAN TEXT
+# =====================================================
+
+def clean_text(text):
+
+    text = text.strip()
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    return text
+
+
+
+# =====================================================
+# SPLIT WORDS
+# =====================================================
+
+def tokenize(text):
+
+    return re.findall(
+        r"\b[\w']+\b",
+        text
+    )
+
+
+
+# =====================================================
+# STYLE DETECTION
+# =====================================================
+
+def detect_style(word):
+
+    lower = word.lower()
+
+
+
+    if lower in PAIN_WORDS:
+
+        return {
+
+            "style":
+            "pain",
+
+            "color":
+            COLORS["pain"]
+
+        }
+
+
+
+    if lower in HOPE_WORDS:
+
+        return {
+
+            "style":
+            "hope",
+
+            "color":
+            COLORS["hope"]
+
+        }
+
+
+
+    if lower in HIGH_IMPACT_WORDS:
+
+        return {
+
+            "style":
+            "highlight",
+
+            "color":
+            COLORS["highlight"]
+
+        }
+
+
+
+    return {
+
+        "style":
+        "normal",
+
+        "color":
+        COLORS["normal"]
+
+    }
+
+
+
+# =====================================================
+# CAPTION GROUPING
+# =====================================================
+
+def create_caption_groups(words):
+
+
+    groups=[]
+
+
+    current=[]
+
+
+    for word in words:
+
+
+        current.append(word)
+
+
+
+        if len(current)>=3:
+
+
+            groups.append(
+                current
+            )
+
+
+            current=[]
+
+
+
+    if current:
+
+
+        groups.append(
+            current
+        )
+
+
+
+    return groups
+
+
+
+
+
+# =====================================================
+# CREATE CAPTION PLAN
+# =====================================================
 
 def create_caption_plan(narration):
 
@@ -14,120 +245,121 @@ def create_caption_plan(narration):
     )
 
 
-    words=narration.split()
+    narration = clean_text(
+        narration
+    )
+
+
+
+    words = tokenize(
+        narration
+    )
+
+
+
+    groups = create_caption_groups(
+        words
+    )
 
 
 
     captions=[]
 
 
-    index=0
 
-
-    buffer=[]
-
-
-
-    for word in words:
-
-
-        buffer.append(word)
+    current_time = 0.0
 
 
 
-        # Viral short caption rhythm
-
-        if len(buffer)>=3:
+    for index,group in enumerate(groups):
 
 
-            captions.append({
+        duration = max(
 
-                "id":index,
+            1.2,
 
+            len(group)*0.35
 
-                "text":
-                " ".join(buffer),
-
-
-                "highlight_words":[
-
-                    buffer[-1]
-
-                ],
+        )
 
 
-                "style":{
-
-                    "font":
-                    "Montserrat ExtraBold",
+        styled_words=[]
 
 
-                    "position":
-                    "center",
+
+        for word in group:
 
 
-                    "primary_color":
-                    "#FFFFFF",
+            style = detect_style(
+                word
+            )
 
 
-                    "highlight_color":
-                    "#F3CE32",
+            styled_words.append(
 
+                {
 
-                    "animation":
-                    "word_pop"
+                "word":
+                word.upper(),
+
+                "style":
+                style["style"],
+
+                "color":
+                style["color"]
 
                 }
 
-
-            })
-
-
-            buffer=[]
-
-            index+=1
+            )
 
 
 
+        captions.append(
 
-    if buffer:
+            {
 
-
-        captions.append({
-
-            "id":index,
+            "id":
+            index+1,
 
             "text":
-            " ".join(buffer),
+            " ".join(group).upper(),
 
-            "highlight_words":[],
+            "start":
+            round(
+                current_time,
+                2
+            ),
 
-            "style":{
+            "end":
+            round(
+                current_time + duration,
+                2
+            ),
 
-                "font":
-                "Montserrat ExtraBold",
+            "words":
+            styled_words,
 
-                "position":
-                "center",
+            "font":
+            "Montserrat ExtraBold",
 
-                "primary_color":
-                "#FFFFFF",
-
-                "highlight_color":
-                "#F3CE32",
-
-                "animation":
-                "word_pop"
+            "position":
+            "center"
 
             }
 
-        })
+        )
+
+
+
+        current_time += duration
+
+
 
 
 
     with open(
 
-        OUTPUT/"caption_plan.json",
+        CAPTION_OUTPUT,
 
         "w",
 
@@ -149,9 +381,15 @@ def create_caption_plan(narration):
         )
 
 
+
     print(
-        "Caption plan complete"
+
+        "Caption plan saved:",
+
+        CAPTION_OUTPUT
+
     )
+
 
 
     return captions
