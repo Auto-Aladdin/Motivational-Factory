@@ -9,24 +9,23 @@ permissions:
 
 jobs:
 
-  generate-short:
+  create-short-plan:
 
     runs-on: ubuntu-latest
 
 
     steps:
 
-    - name: Checkout
+    - name: Checkout repository
       uses: actions/checkout@v4
 
 
-    - name: Install Python dependencies
+    - name: Install dependencies
       run: |
         pip install requests
 
 
-    - name: Run AI Content Factory
-
+    - name: Generate Motivational Short
       env:
         CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -40,71 +39,74 @@ import os
 import json
 import re
 import requests
+import time
 from pathlib import Path
-from time import sleep
 
 
 OUTPUT = Path("output")
 OUTPUT.mkdir(exist_ok=True)
 
 
-# ==============================
-# CLOUDFLARE AI GENERATION
-# ==============================
+# =========================
+# Cloudflare AI
+# =========================
 
 
-def call_ai():
+def cloudflare_generate():
 
-    account = os.environ["CLOUDFLARE_ACCOUNT_ID"]
+    account_id = os.environ["CLOUDFLARE_ACCOUNT_ID"]
     token = os.environ["CLOUDFLARE_API_TOKEN"]
 
 
     url = (
         f"https://api.cloudflare.com/client/v4/accounts/"
-        f"{account}/ai/run/@cf/meta/llama-3.1-8b-instruct"
+        f"{account_id}/ai/run/@cf/meta/llama-3.1-8b-instruct"
     )
 
 
-    prompt = {
+    payload = {
 
         "messages":[
 
             {
-            "role":"system",
-            "content":
+                "role":"system",
+                "content":
 """
-You create professional motivational Shorts.
+You are a professional motivational Shorts writer.
+
+Create original motivational videos.
 
 Rules:
-- Write original content.
-- No famous quotes.
-- 35-55 seconds.
-- Story driven.
-- Emotional progression.
-- Visuals must match narration.
-
-Return ONLY JSON.
+- 30-60 seconds
+- Strong hook
+- Emotional progression
+- Story-based
+- No copied quotes
+- Every visual must match narration
+- Return ONLY JSON
 """
             },
 
 
             {
-            "role":"user",
-            "content":
+                "role":"user",
+                "content":
 """
-Create one motivational short about discipline.
+Create a motivational Short about discipline.
 
-Return exactly:
+Return exactly this JSON:
 
 {
 "title":"",
+"theme":"",
 "hook":"",
 "narration":"",
 "scenes":[
 {
+"scene":1,
 "voice_line":"",
-"visual":"",
-"pexels":"",
+"visual_description":"",
+"pexels_query":"",
 "caption":""
 }
 ]
@@ -112,13 +114,13 @@ Return exactly:
 
 Create exactly 6 scenes.
 
-Keep every field short.
+Keep each field concise.
 """
             }
 
         ],
 
-        "max_tokens":1800
+        "max_tokens":2000
 
     }
 
@@ -128,11 +130,11 @@ Keep every field short.
         url,
 
         headers={
-        "Authorization":f"Bearer {token}",
-        "Content-Type":"application/json"
+            "Authorization":f"Bearer {token}",
+            "Content-Type":"application/json"
         },
 
-        json=prompt,
+        json=payload,
 
         timeout=120
 
@@ -142,22 +144,52 @@ Keep every field short.
     response.raise_for_status()
 
 
-    data=response.json()
+    result=response.json()
 
 
-    return data["result"]["response"]
+    if "result" not in result:
+        raise Exception(result)
+
+
+    output=result["result"]
+
+
+    if isinstance(output,dict):
+
+        if "response" in output:
+            return output["response"]
+
+        return json.dumps(output)
+
+
+    return output
 
 
 
-# ==============================
-# CLEAN JSON
-# ==============================
+# =========================
+# JSON cleaner
+# =========================
 
 
-def extract_json(text):
+def clean_json(text):
+
+
+    text=text.strip()
+
+
+    text=text.replace(
+        "```json",
+        ""
+    )
+
+    text=text.replace(
+        "```",
+        ""
+    )
+
 
     match=re.search(
-        r'\{.*\}',
+        r"\{.*\}",
         text,
         re.DOTALL
     )
@@ -165,7 +197,7 @@ def extract_json(text):
 
     if not match:
         raise Exception(
-            "No JSON found"
+            "JSON not found"
         )
 
 
@@ -175,9 +207,9 @@ def extract_json(text):
 
 
 
-# ==============================
-# VALIDATION
-# ==============================
+# =========================
+# Validation
+# =========================
 
 
 def validate(data):
@@ -185,34 +217,46 @@ def validate(data):
 
     required=[
         "title",
+        "theme",
         "hook",
         "narration",
         "scenes"
     ]
 
 
-    for item in required:
+    for key in required:
 
-        if item not in data:
+        if key not in data:
             return False
 
 
-    if len(data["scenes"]) < 6:
+    scenes=data["scenes"]
+
+
+    if not isinstance(
+        scenes,
+        list
+    ):
         return False
 
 
-    for scene in data["scenes"]:
+    if len(scenes)!=6:
+        return False
 
-        fields=[
+
+    for scene in scenes:
+
+        required_scene=[
             "voice_line",
-            "visual",
-            "pexels",
+            "visual_description",
+            "pexels_query",
             "caption"
         ]
 
-        for f in fields:
 
-            if f not in scene:
+        for key in required_scene:
+
+            if key not in scene:
                 return False
 
 
@@ -220,12 +264,75 @@ def validate(data):
 
 
 
-# ==============================
-# GENERATION LOOP
-# ==============================
+# =========================
+# Pexels
+# =========================
 
 
-print("Starting Motivational Factory")
+def get_pexels(query):
+
+
+    key=os.environ["PEXELS_API_KEY"]
+
+
+    url="https://api.pexels.com/videos/search"
+
+
+    r=requests.get(
+
+        url,
+
+        headers={
+            "Authorization":key
+        },
+
+        params={
+            "query":query,
+            "per_page":3
+        },
+
+        timeout=30
+
+    )
+
+
+    r.raise_for_status()
+
+
+    data=r.json()
+
+
+    results=[]
+
+
+    for video in data.get(
+        "videos",
+        []
+    ):
+
+        results.append(
+            {
+            "id":video["id"],
+            "url":video["url"]
+            }
+        )
+
+
+    return results
+
+
+
+# =========================
+# Main pipeline
+# =========================
+
+
+print(
+"Starting factory..."
+)
+
+
+final=None
 
 
 for attempt in range(3):
@@ -234,18 +341,20 @@ for attempt in range(3):
     try:
 
         print(
-        f"Generation attempt {attempt+1}"
+        "AI attempt",
+        attempt+1
         )
 
 
-        raw=call_ai()
+        raw=cloudflare_generate()
 
 
-        data=extract_json(raw)
+        data=clean_json(raw)
 
 
         if validate(data):
 
+            final=data
             break
 
 
@@ -256,48 +365,83 @@ for attempt in range(3):
 
     except Exception as e:
 
-        print(e)
+        print(
+            "Failed:",
+            e
+        )
 
-        sleep(3)
+        time.sleep(5)
 
 
-else:
+
+if final is None:
 
     raise Exception(
-    "Failed after retries"
+    "Could not generate valid short"
     )
 
 
 
-# ==============================
-# SAVE RESULT
-# ==============================
+# Save script
 
 
-file=OUTPUT/"short_plan.json"
+with open(
+    OUTPUT/"short_plan.json",
+    "w",
+    encoding="utf-8"
+) as f:
 
-
-file.write_text(
-
-    json.dumps(
-        data,
+    json.dump(
+        final,
+        f,
         indent=2,
         ensure_ascii=False
-    ),
+    )
 
+
+
+# Get visual assets
+
+
+assets=[]
+
+
+for scene in final["scenes"]:
+
+
+    videos=get_pexels(
+        scene["pexels_query"]
+    )
+
+
+    assets.append(
+        {
+        "scene":scene["scene"],
+        "query":scene["pexels_query"],
+        "videos":videos
+        }
+    )
+
+
+
+with open(
+    OUTPUT/"visual_assets.json",
+    "w",
     encoding="utf-8"
+) as f:
 
-)
+
+    json.dump(
+        assets,
+        f,
+        indent=2
+    )
+
 
 
 print(
 "SUCCESS"
 )
-
-print(
-file
-)
-
 
 PY
 
@@ -306,12 +450,10 @@ PY
 
 
 
-    - name: Upload result
-
+    - name: Upload generated files
       uses: actions/upload-artifact@v4
-
       with:
 
-        name: motivational-short-plan
+        name: motivational-short-assets
 
-        path: output/short_plan.json
+        path: output/
