@@ -1,6 +1,5 @@
 import os
-import json
-import time
+import re
 import subprocess
 from pathlib import Path
 
@@ -13,7 +12,7 @@ VOICE_OUTPUT = OUTPUT / "voice.wav"
 
 
 # =====================================================
-# SETTINGS
+# KOKORO SETTINGS
 # =====================================================
 
 VOICE = os.getenv(
@@ -22,17 +21,17 @@ VOICE = os.getenv(
 )
 
 
-SPEED_MAP = {
+SAMPLE_RATE = 24000
 
-    "calm":0.90,
 
-    "normal":1.0,
 
-    "powerful":0.92,
+# Different pacing styles
+# Kokoro does not have emotions like an actor,
+# so we control emotion through pacing.
 
-    "dramatic":0.85
-
-}
+PAUSE_SHORT = 0.35
+PAUSE_MEDIUM = 0.75
+PAUSE_LONG = 1.2
 
 
 
@@ -46,66 +45,118 @@ def load_kokoro():
 
         from kokoro import KPipeline
 
-        return KPipeline(
+
+        pipeline = KPipeline(
             lang_code="a"
         )
+
+
+        return pipeline
 
 
     except Exception as e:
 
         raise Exception(
-            f"Kokoro import failed: {e}"
+            f"Kokoro loading failed: {e}"
         )
 
 
 
+# =====================================================
+# TEXT PROCESSING
+# =====================================================
+
+def clean_text(text):
+
+
+    text = text.strip()
+
+
+    # Remove unwanted characters
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+
+    return text
+
+
+
+
+def split_sentences(text):
+
+
+    sentences = re.split(
+        r'(?<=[.!?])\s+',
+        text
+    )
+
+
+    sentences = [
+
+        s.strip()
+
+        for s in sentences
+
+        if s.strip()
+
+    ]
+
+
+    return sentences
+
+
 
 
 # =====================================================
-# TEXT PREPROCESSING
+# MOTIVATIONAL PACING
 # =====================================================
 
-def prepare_sentence(text, emotion):
+def add_emotional_pauses(sentence):
 
 
-    text=text.strip()
+    text = sentence
 
 
 
-    # Add dramatic pauses
+    # Create natural dramatic pauses
 
-    replacements={
+    replacements = {
 
-        " but ":" ... but ",
 
-        " because ":" ... because ",
+        " but ":
+        "... but ",
 
-        " however ":" ... however ",
 
-        " nobody ":" nobody... "
+        " because ":
+        "... because ",
+
+
+        " however ":
+        "... however ",
+
+
+        " nobody ":
+        "Nobody... ",
+
+        
+        " no one ":
+        "No one... "
 
     }
 
 
-    lower=text.lower()
-
 
     for old,new in replacements.items():
 
-        if old in lower:
 
-            text=text.replace(
-                old,
-                new
-            )
-
-
-
-    # Emotional emphasis
-
-    if emotion=="powerful":
-
-        text = text.upper()
+        text = text.replace(
+            old,
+            new
+        )
 
 
 
@@ -115,118 +166,86 @@ def prepare_sentence(text, emotion):
 
 
 
+def calculate_pause(sentence):
+
+
+    words = len(
+        sentence.split()
+    )
+
+
+    if words <= 5:
+
+        return PAUSE_SHORT
+
+
+    if words >= 18:
+
+        return PAUSE_LONG
+
+
+    return PAUSE_MEDIUM
+
+
+
+
 # =====================================================
-# NORMALIZE SCRIPT
+# GENERATE KOKORO AUDIO PARTS
 # =====================================================
 
-def load_voice_script(data):
+def generate_parts(narration):
 
 
-    if "voice_script" in data:
-
-        return data["voice_script"]
-
-
-
-    # Compatibility with old V5
-
-    if "narration" in data:
-
-
-        return [
-
-            {
-
-            "text":
-            data["narration"],
-
-            "emotion":
-            "normal",
-
-            "pause_after":
-            1.0
-
-            }
-
-        ]
+    pipeline = load_kokoro()
 
 
 
-    raise Exception(
-        "No narration found"
+    narration = clean_text(
+        narration
     )
 
 
 
-
-
-# =====================================================
-# GENERATE AUDIO
-# =====================================================
-
-def generate_voice_from_script(script):
-
-
-    pipeline=load_kokoro()
+    sentences = split_sentences(
+        narration
+    )
 
 
 
-    temp_files=[]
+    audio_files=[]
 
 
 
-    for index,item in enumerate(script):
+    for index,sentence in enumerate(sentences):
 
 
-        text=item["text"]
-
-
-        emotion=item.get(
-            "emotion",
-            "normal"
+        processed = add_emotional_pauses(
+            sentence
         )
-
-
-        pause=item.get(
-            "pause_after",
-            0
-        )
-
-
-
-        processed=prepare_sentence(
-            text,
-            emotion
-        )
-
-
-
-        speed=SPEED_MAP.get(
-            emotion,
-            1.0
-        )
-
-
-
-        filename=OUTPUT / f"voice_part_{index}.wav"
 
 
 
         print(
-            f"Generating voice part {index+1}/{len(script)}"
+            f"Generating voice part {index+1}/{len(sentences)}"
         )
 
 
 
-        generator=pipeline(
+        filename = OUTPUT / f"voice_part_{index}.wav"
+
+
+
+        generator = pipeline(
 
             processed,
 
-            voice=VOICE,
-
-            speed=speed
+            voice=VOICE
 
         )
+
+
+
+        generated=False
 
 
 
@@ -236,74 +255,112 @@ def generate_voice_from_script(script):
             import soundfile as sf
 
 
+
             sf.write(
 
                 filename,
 
                 audio,
 
-                24000
+                SAMPLE_RATE
 
             )
+
+
+            generated=True
+
 
             break
 
 
 
 
-        temp_files.append(
+        if not generated:
+
+            raise Exception(
+                f"Kokoro failed sentence {index+1}"
+            )
+
+
+
+        audio_files.append(
             filename
         )
 
 
 
-        # Add silence after emotional beats
+        # Add silence between thoughts
+
+        pause = calculate_pause(
+            sentence
+        )
+
+
 
         if pause > 0:
 
-            silence_file=OUTPUT / f"silence_{index}.wav"
+
+            silence_file = OUTPUT / f"silence_{index}.wav"
 
 
-            subprocess.run(
+            create_silence(
 
-                [
+                silence_file,
 
-                "ffmpeg",
-
-                "-y",
-
-                "-f",
-
-                "lavfi",
-
-                "-i",
-
-                f"anullsrc=r=24000:cl=mono",
-
-                "-t",
-
-                str(pause),
-
-                str(silence_file)
-
-                ],
-
-                stdout=subprocess.DEVNULL,
-
-                stderr=subprocess.DEVNULL
+                pause
 
             )
 
 
-            temp_files.append(
+            audio_files.append(
                 silence_file
             )
 
 
 
+    return audio_files
 
-    return combine_audio(
-        temp_files
+
+
+
+
+# =====================================================
+# SILENCE GENERATOR
+# =====================================================
+
+def create_silence(path,duration):
+
+
+    subprocess.run(
+
+        [
+
+            "ffmpeg",
+
+            "-y",
+
+            "-f",
+
+            "lavfi",
+
+            "-i",
+
+            "anullsrc=r=24000:cl=mono",
+
+            "-t",
+
+            str(duration),
+
+            str(path)
+
+        ],
+
+        stdout=subprocess.DEVNULL,
+
+        stderr=subprocess.DEVNULL,
+
+        check=True
+
     )
 
 
@@ -311,23 +368,24 @@ def generate_voice_from_script(script):
 
 
 # =====================================================
-# JOIN AUDIO PARTS
+# COMBINE AUDIO
 # =====================================================
 
 def combine_audio(files):
 
 
-    concat_file=OUTPUT/"concat.txt"
+    concat = OUTPUT / "audio_concat.txt"
 
 
 
     with open(
-        concat_file,
+        concat,
         "w"
     ) as f:
 
 
         for file in files:
+
 
             f.write(
 
@@ -341,39 +399,36 @@ def combine_audio(files):
 
         [
 
-        "ffmpeg",
+            "ffmpeg",
 
-        "-y",
+            "-y",
 
-        "-f",
+            "-f",
 
-        "concat",
+            "concat",
 
-        "-safe",
+            "-safe",
 
-        "0",
+            "0",
 
-        "-i",
+            "-i",
 
-        str(concat_file),
+            str(concat),
 
-        "-c",
+            "-c",
 
-        "copy",
+            "copy",
 
-        str(VOICE_OUTPUT)
+            str(VOICE_OUTPUT)
 
         ],
 
+        stdout=subprocess.DEVNULL,
+
+        stderr=subprocess.DEVNULL,
+
         check=True
 
-    )
-
-
-
-    print(
-        "Voice created:",
-        VOICE_OUTPUT
     )
 
 
@@ -385,7 +440,7 @@ def combine_audio(files):
 
 
 # =====================================================
-# MAIN ENTRY USED BY FACTORY.PY
+# FACTORY ENTRY POINT
 # =====================================================
 
 def generate_voice(narration):
@@ -397,36 +452,32 @@ def generate_voice(narration):
 
 
 
-    # If factory sends plain text
-
-    if isinstance(
-        narration,
-        str
-    ):
+    if not narration:
 
 
-        script=[
-
-            {
-
-            "text":narration,
-
-            "emotion":"normal",
-
-            "pause_after":1
-
-            }
-
-        ]
+        raise Exception(
+            "Empty narration received"
+        )
 
 
 
-    else:
-
-        script=narration
-
-
-
-    return generate_voice_from_script(
-        script
+    parts = generate_parts(
+        narration
     )
+
+
+
+    output = combine_audio(
+        parts
+    )
+
+
+
+    print(
+        "Voice generated:",
+        output
+    )
+
+
+
+    return output
