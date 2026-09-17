@@ -1,30 +1,224 @@
-name: Generate Motivational Short Plan
+name: Motivational Shorts Factory
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  generate:
+
+  generate-short:
+
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+
+      - name: Install tools
         run: |
+          python -m pip install --upgrade pip
           pip install requests
 
-      - name: Generate AI Short Plan
+
+      - name: Generate motivational short
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          cd src
-          python main.py
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
 
-      - name: Upload Generated Plan
+        run: |
+
+          cat > factory.py <<'PY'
+
+          import os
+          import json
+          import requests
+          from pathlib import Path
+
+
+          # ----------------------------
+          # SETTINGS
+          # ----------------------------
+
+          OUTPUT = Path("output")
+          OUTPUT.mkdir(exist_ok=True)
+
+
+          # ----------------------------
+          # CLOUDFLARE AI
+          # ----------------------------
+
+          def generate_content():
+
+              account = os.environ["CLOUDFLARE_ACCOUNT_ID"]
+              token = os.environ["CLOUDFLARE_API_TOKEN"]
+
+              url = (
+                  f"https://api.cloudflare.com/client/v4/"
+                  f"accounts/{account}/ai/run/"
+                  "@cf/meta/llama-3.1-8b-instruct"
+              )
+
+
+              prompt = {
+
+                  "messages": [
+
+                      {
+                          "role": "system",
+                          "content":
+                          """
+                          You are an expert motivational Shorts writer.
+
+                          Create original short-form motivational videos.
+
+                          Requirements:
+                          - 30-60 seconds
+                          - powerful opening hook
+                          - emotional progression
+                          - memorable ending
+                          - story-based, not only quotes
+                          - every scene must match narration
+
+                          Return ONLY JSON.
+                          """
+                      },
+
+
+                      {
+                          "role": "user",
+                          "content":
+                          """
+                          Create one motivational Short.
+
+                          Return:
+
+                          {
+                            "title":"",
+                            "theme":"",
+                            "hook":"",
+                            "narration":"",
+                            "scenes":[
+                              {
+                                "scene":1,
+                                "voice_line":"",
+                                "visual_description":"",
+                                "pexels_search":"",
+                                "caption":""
+                              }
+                            ]
+                          }
+
+                          Create 6 scenes.
+                          Topic should be discipline and consistency.
+                          """
+                      }
+
+                  ]
+
+              }
+
+
+              r = requests.post(
+                  url,
+                  headers={
+                      "Authorization":f"Bearer {token}",
+                      "Content-Type":"application/json"
+                  },
+                  json=prompt,
+                  timeout=120
+              )
+
+
+              r.raise_for_status()
+
+              return r.json()
+
+
+
+          # ----------------------------
+          # PEXELS
+          # ----------------------------
+
+          def test_pexels(keyword):
+
+              key=os.environ["PEXELS_API_KEY"]
+
+              r=requests.get(
+                  "https://api.pexels.com/videos/search",
+                  headers={
+                      "Authorization":key
+                  },
+                  params={
+                      "query":keyword,
+                      "per_page":3
+                  },
+                  timeout=30
+              )
+
+              r.raise_for_status()
+
+              data=r.json()
+
+              return [
+                  {
+                      "id":x["id"],
+                      "url":x["url"]
+                  }
+                  for x in data.get("videos",[])
+              ]
+
+
+
+          # ----------------------------
+          # MAIN PIPELINE
+          # ----------------------------
+
+
+          print("Generating motivational concept...")
+
+
+          result=generate_content()
+
+
+          OUTPUT.joinpath(
+              "short_plan.json"
+          ).write_text(
+              json.dumps(
+                  result,
+                  indent=2,
+                  ensure_ascii=False
+              )
+          )
+
+
+          print("Testing visual search...")
+
+
+          # simple validation
+          if not result.get("success",True):
+              raise Exception(
+                  "Cloudflare generation failed"
+              )
+
+
+          print("DONE")
+
+          PY
+
+
+          python factory.py
+
+
+
+      - name: Upload generated Short plan
         uses: actions/upload-artifact@v4
         with:
-          name: short-plan
-          path: cache/short_plan.json
+
+          name: motivational-short-plan
+
+          path: output/short_plan.json
