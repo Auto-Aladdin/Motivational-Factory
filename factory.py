@@ -12,14 +12,13 @@ OUTPUT.mkdir(exist_ok=True)
 
 
 # =====================================
-# CLOUDFLARE AI GENERATION
+# CLOUDFLARE AI
 # =====================================
 
-def cloudflare_generate():
+def cloudflare_request(messages, max_tokens=3500):
 
     account_id = os.environ["CLOUDFLARE_ACCOUNT_ID"]
     token = os.environ["CLOUDFLARE_API_TOKEN"]
-
 
     url = (
         f"https://api.cloudflare.com/client/v4/accounts/"
@@ -27,96 +26,105 @@ def cloudflare_generate():
     )
 
 
-    payload = {
+    response = requests.post(
 
-        "messages":[
+        url,
 
-            {
-                "role":"system",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        },
 
-                "content":"""
+        json={
+            "messages": messages,
+            "max_tokens": max_tokens
+        },
 
-You are a professional motivational short-form video writer and director.
-
-Create original motivational videos designed for YouTube Shorts,
-Instagram Reels and TikTok.
-
-Every video must feel like a mini cinematic story.
-
-Requirements:
-
-- Narration length: 100-180 words
-- Duration target: 40-60 seconds
-- Strong first 3 second hook
-- Emotional progression
-- Clear lesson
-- Memorable ending
-- No famous quotes
-- No copied motivational phrases
-- Avoid generic advice
-
-Structure:
-
-1. HOOK
-Grab attention immediately.
-
-2. STRUGGLE
-Show the challenge or internal conflict.
-
-3. REALIZATION
-Reveal the important lesson.
-
-4. ACTION
-Show what changes.
-
-5. TRANSFORMATION
-Show progress.
-
-6. FINAL PAYOFF
-End with a powerful memorable message.
+        timeout=120
+    )
 
 
-For every scene provide:
+    response.raise_for_status()
 
-- What is happening
-- Who is involved
-- Action
-- Emotion
-- Environment
-- Camera style
+    data=response.json()
 
-Visuals must represent the exact narration moment.
+    result=data["result"]
 
-Return ONLY valid JSON.
+
+    if isinstance(result, dict):
+
+        return result.get(
+            "response",
+            result
+        )
+
+
+    return result
+
+
+
+
+
+def cloudflare_generate():
+
+
+    messages=[
+
+    {
+    "role":"system",
+    "content":"""
+
+You are a professional motivational Shorts writer.
+
+Create cinematic motivational videos.
+
+IMPORTANT:
+
+The narration must be between 90 and 130 words.
+
+Do not create short quotes.
+Do not summarize.
+Write a complete spoken narration.
+
+The narration should contain:
+
+- powerful opening hook
+- struggle
+- emotional realization
+- lesson
+- transformation
+- memorable ending
+
+Create exactly 6 scenes.
+
+Every scene must visually represent the exact spoken line.
+
+Return ONLY JSON.
+
 """
+    },
 
-            },
 
+    {
+    "role":"user",
+    "content":"""
 
-            {
+Create a unique motivational Short.
 
-                "role":"user",
-
-                "content":"""
-
-Create a motivational Short.
-
-Choose a unique topic from:
+Topic examples:
 
 discipline,
 failure,
-confidence,
 fear,
-consistency,
-dreams,
 success,
-self-belief,
-hard work,
+dreams,
+confidence,
+consistency,
 personal growth.
 
-Do not reuse common examples.
+Avoid common repeated motivational phrases.
 
-Return:
+JSON format:
 
 {
 "title":"",
@@ -127,9 +135,7 @@ Return:
 
 {
 "scene":1,
-
 "voice_line":"",
-
 "visual":{
 "subject":"",
 "action":"",
@@ -137,71 +143,75 @@ Return:
 "environment":"",
 "camera":""
 },
-
 "pexels_query":"",
-
 "caption":""
-
 }
 
 ]
 
 }
 
-Create exactly 6 scenes.
-
 """
-
-            }
-
-        ],
-
-
-        "max_tokens":3500
-
     }
 
+    ]
 
-    response=requests.post(
 
-        url,
+    return cloudflare_request(messages)
 
-        headers={
 
-            "Authorization":f"Bearer {token}",
 
-            "Content-Type":"application/json"
 
-        },
+# =====================================
+# NARRATION REPAIR
+# =====================================
 
-        json=payload,
+def expand_narration(short_text):
 
-        timeout=120
 
+    print(
+        "Expanding short narration..."
     )
 
 
-    response.raise_for_status()
+    messages=[
+
+    {
+    "role":"system",
+    "content":"""
+
+You are a professional motivational speech editor.
+
+Expand the narration naturally.
+
+Rules:
+
+- Keep original meaning
+- Make it emotional
+- Make it cinematic
+- Final length 90-130 words
+- No famous quotes
+
+Return only the narration text.
+
+"""
+    },
+
+    {
+    "role":"user",
+    "content":short_text
+    }
+
+    ]
 
 
-    data=response.json()
+    result=cloudflare_request(
+        messages,
+        max_tokens=800
+    )
 
 
-    result=data["result"]
-
-
-    if isinstance(result,dict):
-
-        if "response" in result:
-
-            return result["response"]
-
-
-        return result
-
-
-    return result
-
+    return str(result)
 
 
 
@@ -226,7 +236,6 @@ def parse_json(data):
         ""
     )
 
-
     text=text.replace(
         "```",
         ""
@@ -234,20 +243,16 @@ def parse_json(data):
 
 
     match=re.search(
-
         r"\{.*\}",
-
         text,
-
         re.DOTALL
-
     )
 
 
     if not match:
 
         raise Exception(
-            "No JSON found"
+            "JSON not found"
         )
 
 
@@ -267,13 +272,11 @@ def validate(data):
 
 
     required=[
-
         "title",
         "theme",
         "hook",
         "narration",
         "scenes"
-
     ]
 
 
@@ -281,62 +284,59 @@ def validate(data):
 
         if key not in data:
 
+            print(
+                "Missing:",
+                key
+            )
+
             return False
 
 
 
-    narration=data["narration"]
-
-
     words=len(
-        narration.split()
+        data["narration"].split()
     )
 
 
-    if words < 100:
+    print(
+        "Narration words:",
+        words
+    )
+
+
+    # Accept draft because repair exists
+    if words < 25:
 
         print(
-            "Narration too short:",
-            words
+            "Narration unusable"
         )
 
         return False
 
 
 
-    if words > 180:
+    if words > 200:
+
+        return False
+
+
+
+    if len(data["scenes"]) != 6:
 
         print(
-            "Narration too long:",
-            words
+            "Invalid scenes"
         )
 
         return False
 
 
 
-    scenes=data["scenes"]
-
-
-    if len(scenes)!=6:
-
-        return False
-
-
-
-    previous=[]
-
-
-    for scene in scenes:
+    for scene in data["scenes"]:
 
 
         if "visual" not in scene:
 
             return False
-
-
-
-        visual=scene["visual"]
 
 
         for key in [
@@ -349,28 +349,9 @@ def validate(data):
 
         ]:
 
-            if not visual.get(key):
+            if not scene["visual"].get(key):
 
                 return False
-
-
-
-        concept=visual["action"].lower()
-
-
-        if concept in previous:
-
-            print(
-                "Repeated scene"
-            )
-
-            return False
-
-
-
-        previous.append(
-            concept
-        )
 
 
     return True
@@ -394,17 +375,12 @@ def pexels_search(query):
         "https://api.pexels.com/videos/search",
 
         headers={
-
             "Authorization":key
-
         },
 
         params={
-
             "query":query,
-
             "per_page":3
-
         },
 
         timeout=30
@@ -426,17 +402,12 @@ def pexels_search(query):
         []
     ):
 
-        videos.append(
-
-            {
+        videos.append({
 
             "id":video["id"],
-
             "url":video["url"]
 
-            }
-
-        )
+        })
 
 
     return videos
@@ -446,11 +417,12 @@ def pexels_search(query):
 
 
 # =====================================
-# PIPELINE
+# MAIN PIPELINE
 # =====================================
 
+
 print(
-"Starting Motivational Factory V2"
+"Starting Motivational Factory V3"
 )
 
 
@@ -458,36 +430,50 @@ final=None
 
 
 
-for attempt in range(3):
+for attempt in range(5):
 
 
     try:
 
 
         print(
-            "Generation attempt",
+            "Attempt",
             attempt+1
         )
 
 
-        result=cloudflare_generate()
+        raw=cloudflare_generate()
 
 
-        data=parse_json(result)
+        data=parse_json(raw)
 
 
 
         if validate(data):
 
+
+            words=len(
+                data["narration"].split()
+            )
+
+
+            if words < 90:
+
+
+                data["narration"]=expand_narration(
+                    data["narration"]
+                )
+
+
+                print(
+                    "Narration repaired"
+                )
+
+
             final=data
 
             break
 
-
-
-        raise Exception(
-            "Validation failed"
-        )
 
 
     except Exception as e:
@@ -499,7 +485,7 @@ for attempt in range(3):
         )
 
 
-        time.sleep(5)
+    time.sleep(5)
 
 
 
@@ -507,7 +493,7 @@ for attempt in range(3):
 if final is None:
 
     raise Exception(
-        "Could not create valid Short"
+        "Generation failed"
     )
 
 
@@ -526,15 +512,10 @@ with open(
 
 
     json.dump(
-
         final,
-
         f,
-
         indent=2,
-
         ensure_ascii=False
-
     )
 
 
@@ -544,29 +525,28 @@ with open(
 assets=[]
 
 
-
 for scene in final["scenes"]:
 
 
-    assets.append(
-
-        {
+    assets.append({
 
         "scene":scene["scene"],
 
         "visual":scene["visual"],
 
-        "query":scene["pexels_query"],
+        "query":scene.get(
+            "pexels_query",
+            ""
+        ),
 
         "videos":pexels_search(
-
-            scene["pexels_query"]
-
+            scene.get(
+                "pexels_query",
+                "cinematic motivation"
+            )
         )
 
-        }
-
-    )
+    })
 
 
 
@@ -584,15 +564,10 @@ with open(
 
 
     json.dump(
-
         assets,
-
         f,
-
         indent=2,
-
         ensure_ascii=False
-
     )
 
 
@@ -600,5 +575,5 @@ with open(
 
 
 print(
-"FACTORY V2 COMPLETE"
+"FACTORY V3 COMPLETE"
 )
