@@ -6,454 +6,72 @@ on:
 permissions:
   contents: read
 
-
 jobs:
 
   create-short-plan:
 
     runs-on: ubuntu-latest
 
-
     steps:
 
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
 
-    - name: Install dependencies
-      run: |
-        pip install requests
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
 
-    - name: Generate Motivational Short
-      env:
-        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      - name: Install dependencies
+        run: |
+          pip install requests
 
-      run: |
 
-        cat > factory.py <<'PY'
+      - name: Create Factory Script
+        run: |
+          cat > factory.py <<'PY'
+          import os
+          import json
 
-import os
-import json
-import re
-import requests
-import time
-from pathlib import Path
+          print("Motivational Factory started")
 
+          print(
+              "Cloudflare:",
+              bool(os.environ.get("CLOUDFLARE_API_TOKEN"))
+          )
 
-OUTPUT = Path("output")
-OUTPUT.mkdir(exist_ok=True)
+          print(
+              "Pexels:",
+              bool(os.environ.get("PEXELS_API_KEY"))
+          )
 
+          with open("output_test.json","w") as f:
+              json.dump(
+                  {
+                    "status":"working"
+                  },
+                  f,
+                  indent=2
+              )
 
-# =========================
-# Cloudflare AI
-# =========================
+          print("Complete")
+          PY
 
 
-def cloudflare_generate():
+      - name: Run Factory
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
 
-    account_id = os.environ["CLOUDFLARE_ACCOUNT_ID"]
-    token = os.environ["CLOUDFLARE_API_TOKEN"]
+        run: |
+          python factory.py
 
 
-    url = (
-        f"https://api.cloudflare.com/client/v4/accounts/"
-        f"{account_id}/ai/run/@cf/meta/llama-3.1-8b-instruct"
-    )
-
-
-    payload = {
-
-        "messages":[
-
-            {
-                "role":"system",
-                "content":
-"""
-You are a professional motivational Shorts writer.
-
-Create original motivational videos.
-
-Rules:
-- 30-60 seconds
-- Strong hook
-- Emotional progression
-- Story-based
-- No copied quotes
-- Every visual must match narration
-- Return ONLY JSON
-"""
-            },
-
-
-            {
-                "role":"user",
-                "content":
-"""
-Create a motivational Short about discipline.
-
-Return exactly this JSON:
-
-{
-"title":"",
-"theme":"",
-"hook":"",
-"narration":"",
-"scenes":[
-{
-"scene":1,
-"voice_line":"",
-"visual_description":"",
-"pexels_query":"",
-"caption":""
-}
-]
-}
-
-Create exactly 6 scenes.
-
-Keep each field concise.
-"""
-            }
-
-        ],
-
-        "max_tokens":2000
-
-    }
-
-
-    response=requests.post(
-
-        url,
-
-        headers={
-            "Authorization":f"Bearer {token}",
-            "Content-Type":"application/json"
-        },
-
-        json=payload,
-
-        timeout=120
-
-    )
-
-
-    response.raise_for_status()
-
-
-    result=response.json()
-
-
-    if "result" not in result:
-        raise Exception(result)
-
-
-    output=result["result"]
-
-
-    if isinstance(output,dict):
-
-        if "response" in output:
-            return output["response"]
-
-        return json.dumps(output)
-
-
-    return output
-
-
-
-# =========================
-# JSON cleaner
-# =========================
-
-
-def clean_json(text):
-
-
-    text=text.strip()
-
-
-    text=text.replace(
-        "```json",
-        ""
-    )
-
-    text=text.replace(
-        "```",
-        ""
-    )
-
-
-    match=re.search(
-        r"\{.*\}",
-        text,
-        re.DOTALL
-    )
-
-
-    if not match:
-        raise Exception(
-            "JSON not found"
-        )
-
-
-    return json.loads(
-        match.group()
-    )
-
-
-
-# =========================
-# Validation
-# =========================
-
-
-def validate(data):
-
-
-    required=[
-        "title",
-        "theme",
-        "hook",
-        "narration",
-        "scenes"
-    ]
-
-
-    for key in required:
-
-        if key not in data:
-            return False
-
-
-    scenes=data["scenes"]
-
-
-    if not isinstance(
-        scenes,
-        list
-    ):
-        return False
-
-
-    if len(scenes)!=6:
-        return False
-
-
-    for scene in scenes:
-
-        required_scene=[
-            "voice_line",
-            "visual_description",
-            "pexels_query",
-            "caption"
-        ]
-
-
-        for key in required_scene:
-
-            if key not in scene:
-                return False
-
-
-    return True
-
-
-
-# =========================
-# Pexels
-# =========================
-
-
-def get_pexels(query):
-
-
-    key=os.environ["PEXELS_API_KEY"]
-
-
-    url="https://api.pexels.com/videos/search"
-
-
-    r=requests.get(
-
-        url,
-
-        headers={
-            "Authorization":key
-        },
-
-        params={
-            "query":query,
-            "per_page":3
-        },
-
-        timeout=30
-
-    )
-
-
-    r.raise_for_status()
-
-
-    data=r.json()
-
-
-    results=[]
-
-
-    for video in data.get(
-        "videos",
-        []
-    ):
-
-        results.append(
-            {
-            "id":video["id"],
-            "url":video["url"]
-            }
-        )
-
-
-    return results
-
-
-
-# =========================
-# Main pipeline
-# =========================
-
-
-print(
-"Starting factory..."
-)
-
-
-final=None
-
-
-for attempt in range(3):
-
-
-    try:
-
-        print(
-        "AI attempt",
-        attempt+1
-        )
-
-
-        raw=cloudflare_generate()
-
-
-        data=clean_json(raw)
-
-
-        if validate(data):
-
-            final=data
-            break
-
-
-        raise Exception(
-        "Validation failed"
-        )
-
-
-    except Exception as e:
-
-        print(
-            "Failed:",
-            e
-        )
-
-        time.sleep(5)
-
-
-
-if final is None:
-
-    raise Exception(
-    "Could not generate valid short"
-    )
-
-
-
-# Save script
-
-
-with open(
-    OUTPUT/"short_plan.json",
-    "w",
-    encoding="utf-8"
-) as f:
-
-    json.dump(
-        final,
-        f,
-        indent=2,
-        ensure_ascii=False
-    )
-
-
-
-# Get visual assets
-
-
-assets=[]
-
-
-for scene in final["scenes"]:
-
-
-    videos=get_pexels(
-        scene["pexels_query"]
-    )
-
-
-    assets.append(
-        {
-        "scene":scene["scene"],
-        "query":scene["pexels_query"],
-        "videos":videos
-        }
-    )
-
-
-
-with open(
-    OUTPUT/"visual_assets.json",
-    "w",
-    encoding="utf-8"
-) as f:
-
-
-    json.dump(
-        assets,
-        f,
-        indent=2
-    )
-
-
-
-print(
-"SUCCESS"
-)
-
-PY
-
-
-        python factory.py
-
-
-
-    - name: Upload generated files
-      uses: actions/upload-artifact@v4
-      with:
-
-        name: motivational-short-assets
-
-        path: output/
+      - name: Upload Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-test
+          path: output_test.json
