@@ -27,24 +27,43 @@ jobs:
           python-version: "3.12"
 
 
-      - name: Install Requests
+      - name: Cache Kokoro Models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache
+          key: kokoro-model-cache-v1
+
+
+      - name: Install Dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install requests
+          pip install kokoro soundfile numpy
+          sudo apt-get update
+          sudo apt-get install ffmpeg -y
 
 
       - name: Run Factory
         env:
+
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
 
+
         run: |
+
           python factory.py
+
 
 
       - name: Upload Generated Assets
         uses: actions/upload-artifact@v4
 
         with:
+
           name: motivational-short-assets
+
           path: output/
