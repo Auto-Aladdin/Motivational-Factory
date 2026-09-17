@@ -178,7 +178,7 @@ NARRATION REQUIREMENTS
 
 Length:
 
-70-150 words.
+70-170 words.
 
 Must include:
 
@@ -558,7 +558,7 @@ FINAL REQUIREMENTS
 ================================================
 
 - Exactly 6 scenes.
-- Narration must be 70-150 words.
+- Narration must be 70-170 words.
 - Every scene must feel cinematic.
 - Every scene must contain a meaningful action.
 - Every action must match its voice_line.
@@ -614,7 +614,9 @@ def parse_json(data):
         return data
 
     if data is None:
-        raise Exception("AI returned empty response")
+        raise Exception(
+            "AI returned empty response"
+        )
 
     text = str(data).strip()
 
@@ -636,9 +638,9 @@ def parse_json(data):
 
     text = text.strip()
 
-    # ---------------------------------
+    # =================================
     # Find JSON object
-    # ---------------------------------
+    # =================================
 
     match = re.search(
         r"\{.*\}",
@@ -647,13 +649,15 @@ def parse_json(data):
     )
 
     if not match:
-        raise Exception("JSON not found in AI response")
+        raise Exception(
+            "JSON not found in AI response"
+        )
 
     clean = match.group()
 
-    # ---------------------------------
+    # =================================
     # Remove invalid control characters
-    # ---------------------------------
+    # =================================
 
     clean = re.sub(
         r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]",
@@ -661,9 +665,9 @@ def parse_json(data):
         clean
     )
 
-    # ---------------------------------
+    # =================================
     # Remove trailing commas
-    # ---------------------------------
+    # =================================
 
     clean = re.sub(
         r",\s*([}\]])",
@@ -671,9 +675,9 @@ def parse_json(data):
         clean
     )
 
-    # ---------------------------------
+    # =================================
     # First JSON parse
-    # ---------------------------------
+    # =================================
 
     try:
         return json.loads(clean)
@@ -685,9 +689,9 @@ def parse_json(data):
             first_error
         )
 
-        # ---------------------------------
+        # =================================
         # Second repair pass
-        # ---------------------------------
+        # =================================
 
         repaired = clean.replace(
             "\\'",
@@ -701,9 +705,12 @@ def parse_json(data):
         )
 
         try:
-            return json.loads(repaired)
+            return json.loads(
+                repaired
+            )
 
         except json.JSONDecodeError as second_error:
+
             raise Exception(
                 f"Could not parse AI JSON: {second_error}"
             ) from second_error
@@ -713,20 +720,16 @@ def parse_json(data):
 # CINEMATIC QUALITY VALIDATION
 # =====================================
 
-GENERIC_VISUAL_WORDS = [
-    "person standing",
-    "person simply standing",
-    "man standing",
-    "woman standing",
+GENERIC_VISUAL_PATTERNS = [
+    "random person",
     "person looking at camera",
-    "looking at camera",
-    "businessman",
-    "generic businessman",
-    "office",
-    "laptop",
-    "phone scrolling",
-    "influencer",
-    "influencer lifestyle"
+    "businessman in office",
+    "typing on laptop",
+    "using phone",
+    "influencer lifestyle",
+    "selfie",
+    "generic office worker",
+    "social media influencer"
 ]
 
 
@@ -756,17 +759,24 @@ def validate(data):
         "voice_direction"
     ]
 
-    if not isinstance(data, dict):
-        print("AI output is not a JSON object")
+    if not isinstance(
+        data,
+        dict
+    ):
+        print(
+            "AI output is not a JSON object"
+        )
         return False
 
     for item in required:
 
         if item not in data:
+
             print(
                 "Missing field:",
                 item
             )
+
             return False
 
     # =================================
@@ -779,7 +789,9 @@ def validate(data):
         narration,
         str
     ):
-        print("Narration is not a string")
+        print(
+            "Narration is not a string"
+        )
         return False
 
     words = len(
@@ -792,15 +804,22 @@ def validate(data):
     )
 
     if words < 70:
+
         print(
             "Narration too short"
         )
+
         return False
 
-    if words > 150:
+    # FIX 1:
+    # Maximum narration length is now 170 words.
+
+    if words > 170:
+
         print(
             "Narration too long"
         )
+
         return False
 
     # =================================
@@ -815,15 +834,19 @@ def validate(data):
         background_queries,
         list
     ):
+
         print(
             "background_queries must be a list"
         )
+
         return False
 
     if len(background_queries) < 3:
+
         print(
             "Not enough background queries"
         )
+
         return False
 
     # =================================
@@ -836,16 +859,20 @@ def validate(data):
         scenes,
         list
     ):
+
         print(
             "Scenes must be a list"
         )
+
         return False
 
     if len(scenes) != 6:
+
         print(
             "Wrong scene count:",
             len(scenes)
         )
+
         return False
 
     # =================================
@@ -861,10 +888,12 @@ def validate(data):
             scene,
             dict
         ):
+
             print(
                 "Invalid scene:",
                 index
             )
+
             return False
 
         required_scene = [
@@ -878,28 +907,32 @@ def validate(data):
         for field in required_scene:
 
             if field not in scene:
+
                 print(
                     "Missing scene field:",
                     field,
                     "in scene",
                     index
                 )
+
                 return False
 
-        # ---------------------------------
+        # =================================
         # Scene number
-        # ---------------------------------
+        # =================================
 
         if scene.get("scene") != index:
+
             print(
                 "Incorrect scene number:",
                 scene.get("scene")
             )
+
             return False
 
-        # ---------------------------------
+        # =================================
         # Voice line
-        # ---------------------------------
+        # =================================
 
         if not isinstance(
             scene.get("voice_line"),
@@ -912,11 +945,12 @@ def validate(data):
                 "Missing voice line in scene:",
                 index
             )
+
             return False
 
-        # ---------------------------------
+        # =================================
         # Visual object
-        # ---------------------------------
+        # =================================
 
         visual = scene["visual"]
 
@@ -924,10 +958,12 @@ def validate(data):
             visual,
             dict
         ):
+
             print(
                 "Visual is not an object in scene:",
                 index
             )
+
             return False
 
         visual_required = [
@@ -954,9 +990,10 @@ def validate(data):
 
                 return False
 
-        # ---------------------------------
-        # Reject generic visuals
-        # ---------------------------------
+        # =================================
+        # FIX 2:
+        # Use narrower generic visual detector
+        # =================================
 
         combined = " ".join([
             str(visual.get("type", "")),
@@ -966,7 +1003,7 @@ def validate(data):
             str(visual.get("environment", ""))
         ]).lower()
 
-        for bad in GENERIC_VISUAL_WORDS:
+        for bad in GENERIC_VISUAL_PATTERNS:
 
             if bad in combined:
 
@@ -979,9 +1016,9 @@ def validate(data):
 
                 return False
 
-        # ---------------------------------
-        # Reject empty/non-meaningful action
-        # ---------------------------------
+        # =================================
+        # Generic action validation
+        # =================================
 
         action = str(
             visual.get("action", "")
@@ -998,9 +1035,9 @@ def validate(data):
 
             return False
 
-        # ---------------------------------
+        # =================================
         # Pexels query
-        # ---------------------------------
+        # =================================
 
         if not isinstance(
             scene.get("pexels_query"),
@@ -1016,9 +1053,9 @@ def validate(data):
 
             return False
 
-        # ---------------------------------
+        # =================================
         # Caption
-        # ---------------------------------
+        # =================================
 
         if not isinstance(
             scene.get("caption"),
@@ -1044,9 +1081,11 @@ def validate(data):
         creative,
         dict
     ):
+
         print(
             "Invalid creative_direction"
         )
+
         return False
 
     creative_required = [
@@ -1080,9 +1119,11 @@ def validate(data):
         voice,
         dict
     ):
+
         print(
             "Invalid voice_direction"
         )
+
         return False
 
     voice_required = [
