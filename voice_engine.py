@@ -12,24 +12,79 @@ VOICE_OUTPUT = OUTPUT / "voice.wav"
 
 
 # =====================================================
-# KOKORO SETTINGS
+# KOKORO AI VOICE DIRECTOR
 # =====================================================
+#
+# The narration is analyzed locally and assigned to a
+# suitable Kokoro voice profile.
+#
+# No random male/female selection.
+# No change to factory.py is required.
+#
+# factory.py
+#     ↓
+# generate_voice(narration)
+#     ↓
+# voice_engine.py
+#     ↓
+# AI Voice Director
+#     ↓
+# Kokoro
+#
 
-VOICE = os.getenv(
-    "KOKORO_VOICE",
-    "af_bella"
-)
+VOICE_PROFILES = {
+
+    "stoic_male":
+    {
+        "voice": "am_adam",
+        "speed": 0.90,
+        "description":
+            "Deep calm mentor voice. Suitable for discipline, "
+            "stoicism, resilience and serious life lessons."
+    },
+
+    "power_male":
+    {
+        "voice": "am_michael",
+        "speed": 0.95,
+        "description":
+            "Confident motivational coach. Suitable for ambition, "
+            "challenges, failure and comeback stories."
+    },
+
+    "warm_female":
+    {
+        "voice": "af_bella",
+        "speed": 1.00,
+        "description":
+            "Warm emotional storyteller. Suitable for healing, "
+            "personal growth and emotional stories."
+    },
+
+    "hopeful_female":
+    {
+        "voice": "af_sarah",
+        "speed": 0.98,
+        "description":
+            "Inspirational supportive voice. Suitable for dreams, "
+            "hope, confidence and self-belief."
+    }
+}
+
+
+DEFAULT_PROFILE = "stoic_male"
 
 
 SAMPLE_RATE = 24000
 
 
-# Motivational pacing
+# =====================================================
+# MOTIVATIONAL PACING
+# =====================================================
 
 PAUSE_SHORT = 0.35
 PAUSE_MEDIUM = 0.75
-PAUSE_LONG = 1.2
-
+PAUSE_LONG = 1.20
 
 
 # =====================================================
@@ -42,21 +97,17 @@ def load_kokoro():
 
         from kokoro import KPipeline
 
-
         pipeline = KPipeline(
             lang_code="a"
         )
 
-
         return pipeline
-
 
     except Exception as e:
 
         raise Exception(
             f"Kokoro loading failed: {e}"
         )
-
 
 
 # =====================================================
@@ -67,44 +118,206 @@ def clean_text(text):
 
     text = text.strip()
 
-
     text = re.sub(
         r"\s+",
         " ",
         text
     )
 
-
     return text
-
-
-
 
 
 def split_sentences(text):
 
-
     sentences = re.split(
-
         r'(?<=[.!?])\s+',
-
         text
-
     )
 
-
     return [
-
         s.strip()
-
         for s in sentences
-
         if s.strip()
-
     ]
 
 
+# =====================================================
+# AI VOICE DIRECTOR
+# =====================================================
 
+def select_voice_profile(narration):
+
+    """
+    Select the most suitable Kokoro voice profile based
+    on the emotional/topic signals present in narration.
+
+    This is intentionally local and deterministic so it
+    does not add another API request or token cost.
+    """
+
+    text = narration.lower()
+
+    # -------------------------------------------------
+    # Discipline / Stoic / Hard Work
+    # -------------------------------------------------
+
+    discipline_words = [
+
+        "discipline",
+        "consistent",
+        "consistency",
+        "hard work",
+        "sacrifice",
+        "routine",
+        "focus",
+        "focused",
+        "control",
+        "self control",
+        "determination",
+        "determined",
+        "grind",
+        "work ethic",
+        "patience",
+        "stoic",
+        "responsibility"
+
+    ]
+
+    if any(
+        word in text
+        for word in discipline_words
+    ):
+
+        return "stoic_male"
+
+
+    # -------------------------------------------------
+    # Failure / Resilience / Comeback
+    # -------------------------------------------------
+
+    resilience_words = [
+
+        "failure",
+        "failed",
+        "fail",
+        "lost",
+        "loss",
+        "struggle",
+        "struggled",
+        "pain",
+        "painful",
+        "comeback",
+        "quit",
+        "quitting",
+        "setback",
+        "setbacks",
+        "obstacle",
+        "obstacles",
+        "rejected",
+        "rejection",
+        "defeat",
+        "defeated",
+        "rise again",
+        "keep going",
+        "keep fighting",
+        "never give up"
+
+    ]
+
+    if any(
+        word in text
+        for word in resilience_words
+    ):
+
+        return "power_male"
+
+
+    # -------------------------------------------------
+    # Healing / Emotional Growth
+    # -------------------------------------------------
+
+    emotional_words = [
+
+        "healing",
+        "heal",
+        "past",
+        "forgive",
+        "forgiveness",
+        "hurt",
+        "hurting",
+        "emotional",
+        "emotion",
+        "change",
+        "growth",
+        "growing",
+        "journey",
+        "heart",
+        "heartbreak",
+        "lonely",
+        "loneliness",
+        "memories",
+        "regret",
+        "peace",
+        "acceptance",
+        "letting go"
+
+    ]
+
+    if any(
+        word in text
+        for word in emotional_words
+    ):
+
+        return "warm_female"
+
+
+    # -------------------------------------------------
+    # Dreams / Hope / Confidence
+    # -------------------------------------------------
+
+    hope_words = [
+
+        "dream",
+        "dreams",
+        "future",
+        "hope",
+        "hopeful",
+        "believe",
+        "believing",
+        "belief",
+        "possibility",
+        "possibilities",
+        "confidence",
+        "confident",
+        "courage",
+        "opportunity",
+        "opportunities",
+        "vision",
+        "goal",
+        "goals",
+        "success",
+        "successful",
+        "inspire",
+        "inspiration",
+        "inspiring",
+        "tomorrow",
+        "potential"
+
+    ]
+
+    if any(
+        word in text
+        for word in hope_words
+    ):
+
+        return "hopeful_female"
+
+
+    # -------------------------------------------------
+    # Safe default
+    # -------------------------------------------------
+
+    return DEFAULT_PROFILE
 
 
 # =====================================================
@@ -113,75 +326,52 @@ def split_sentences(text):
 
 def add_emotional_pauses(sentence):
 
-
     text = sentence
-
 
     replacements = {
 
-
         " but ":
-        "... but ",
-
+            "... but ",
 
         " because ":
-        "... because ",
-
+            "... because ",
 
         " however ":
-        "... however ",
-
+            "... however ",
 
         " nobody ":
-        "Nobody... ",
-
+            "Nobody... ",
 
         " no one ":
-        "No one... "
+            "No one... "
 
     }
 
-
-
-    for old,new in replacements.items():
-
+    for old, new in replacements.items():
 
         text = text.replace(
             old,
             new
         )
 
-
     return text
 
 
-
-
-
 def calculate_pause(sentence):
-
 
     words = len(
         sentence.split()
     )
 
-
     if words <= 5:
 
         return PAUSE_SHORT
-
-
 
     if words >= 18:
 
         return PAUSE_LONG
 
-
-
     return PAUSE_MEDIUM
-
-
-
 
 
 # =====================================================
@@ -190,62 +380,119 @@ def calculate_pause(sentence):
 
 def generate_parts(narration):
 
-
     pipeline = load_kokoro()
-
-
 
     narration = clean_text(
         narration
     )
 
-
-
     sentences = split_sentences(
         narration
     )
 
+    if not sentences:
+
+        raise Exception(
+            "No valid sentences found in narration"
+        )
+
+
+    # -------------------------------------------------
+    # Select voice ONCE for the complete narration.
+    #
+    # This keeps the narrator consistent throughout
+    # the entire short instead of changing voices
+    # sentence by sentence.
+    # -------------------------------------------------
+
+    profile = select_voice_profile(
+        narration
+    )
+
+    voice_settings = VOICE_PROFILES.get(
+        profile,
+        VOICE_PROFILES[DEFAULT_PROFILE]
+    )
+
+
+    selected_voice = voice_settings["voice"]
+    selected_speed = voice_settings["speed"]
+
+
+    print(
+        "----------------------------------------"
+    )
+
+    print(
+        "AI Voice Director"
+    )
+
+    print(
+        "Selected profile:",
+        profile
+    )
+
+    print(
+        "Kokoro voice:",
+        selected_voice
+    )
+
+    print(
+        "Voice speed:",
+        selected_speed
+    )
+
+    print(
+        "----------------------------------------"
+    )
 
 
     audio_files = []
 
 
-
     for index, sentence in enumerate(sentences):
-
 
         processed = add_emotional_pauses(
             sentence
         )
 
 
-
         print(
-            f"Generating voice part {index+1}/{len(sentences)}"
+            f"Generating voice part "
+            f"{index + 1}/{len(sentences)}"
         )
-
 
 
         filename = OUTPUT / f"voice_part_{index}.wav"
 
 
+        # -------------------------------------------------
+        # IMPORTANT:
+        #
+        # speed MUST be passed into Kokoro here.
+        #
+        # Merely assigning:
+        #
+        # speed = voice_settings["speed"]
+        #
+        # after generation does NOT change the voice.
+        # -------------------------------------------------
 
         generator = pipeline(
 
             processed,
 
-            voice=VOICE
+            voice=selected_voice,
+
+            speed=selected_speed
 
         )
-
 
 
         generated = False
 
 
-
         for _, _, audio in generator:
-
 
             import soundfile as sf
 
@@ -263,21 +510,17 @@ def generate_parts(narration):
 
             generated = True
 
-
             break
-
-
 
 
         if not generated:
 
-
             raise Exception(
 
-                f"Kokoro failed sentence {index+1}"
+                f"Kokoro failed sentence "
+                f"{index + 1}"
 
             )
-
 
 
         audio_files.append(
@@ -285,18 +528,17 @@ def generate_parts(narration):
         )
 
 
-
         pause = calculate_pause(
             sentence
         )
 
 
-
         if pause > 0:
 
-
-            silence_file = OUTPUT / f"silence_{index}.wav"
-
+            silence_file = (
+                OUTPUT /
+                f"silence_{index}.wav"
+            )
 
 
             create_silence(
@@ -308,17 +550,12 @@ def generate_parts(narration):
             )
 
 
-
             audio_files.append(
                 silence_file
             )
 
 
-
     return audio_files
-
-
-
 
 
 # =====================================================
@@ -326,7 +563,6 @@ def generate_parts(narration):
 # =====================================================
 
 def create_silence(path, duration):
-
 
     subprocess.run(
 
@@ -361,18 +597,13 @@ def create_silence(path, duration):
     )
 
 
-
-
-
 # =====================================================
-# COMBINE AUDIO (FIXED)
+# COMBINE AUDIO
 # =====================================================
 
 def combine_audio(files):
 
-
     concat = OUTPUT / "audio_concat.txt"
-
 
 
     with open(
@@ -385,14 +616,11 @@ def combine_audio(files):
 
     ) as f:
 
-
         for file in files:
-
 
             absolute_path = Path(
                 file
             ).resolve()
-
 
 
             f.write(
@@ -400,7 +628,6 @@ def combine_audio(files):
                 f"file '{absolute_path}'\n"
 
             )
-
 
 
     command = [
@@ -438,7 +665,6 @@ def combine_audio(files):
     ]
 
 
-
     result = subprocess.run(
 
         command,
@@ -452,25 +678,18 @@ def combine_audio(files):
     )
 
 
-
     if result.returncode != 0:
-
 
         print(
             result.stderr
         )
-
 
         raise Exception(
             "Audio merge failed"
         )
 
 
-
     return VOICE_OUTPUT
-
-
-
 
 
 # =====================================================
@@ -479,20 +698,16 @@ def combine_audio(files):
 
 def generate_voice(narration):
 
-
     print(
-        "Generating Kokoro motivational voice..."
+        "Generating Kokoro AI-directed motivational voice..."
     )
-
 
 
     if not narration:
 
-
         raise Exception(
             "Empty narration received"
         )
-
 
 
     parts = generate_parts(
@@ -500,18 +715,15 @@ def generate_voice(narration):
     )
 
 
-
     output = combine_audio(
         parts
     )
-
 
 
     print(
         "Voice generated:",
         output
     )
-
 
 
     return output
