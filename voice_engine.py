@@ -1,6 +1,6 @@
 import os
 import requests
-import base64
+import time
 from pathlib import Path
 
 
@@ -9,23 +9,48 @@ OUTPUT.mkdir(exist_ok=True)
 
 
 
+def clean_text(text):
+
+    text=text.replace(
+        "\n",
+        " "
+    )
+
+    text=text.replace(
+        '"',
+        "'"
+    )
+
+    text=" ".join(
+        text.split()
+    )
+
+    return text.strip()
+
+
+
+
+
 def generate_voice(text):
+
 
     print(
         "Generating MeloTTS voice..."
     )
 
 
-    account_id = os.environ[
+    account_id=os.environ[
         "CLOUDFLARE_ACCOUNT_ID"
     ]
 
-    token = os.environ[
+
+    token=os.environ[
         "CLOUDFLARE_API_TOKEN"
     ]
 
 
-    url = (
+
+    url=(
 
         f"https://api.cloudflare.com/client/v4/accounts/"
         f"{account_id}/ai/run/@cf/myshell-ai/melotts"
@@ -33,152 +58,146 @@ def generate_voice(text):
     )
 
 
-    payload = {
 
-        "prompt": text
+    text=clean_text(text)
+
+
+
+    # Split very long narration safely
+
+    if len(text) > 700:
+
+        text=text[:700]
+
+
+
+    payload={
+
+        "prompt":text
 
     }
 
 
 
-    response = requests.post(
+    headers={
 
-        url,
+        "Authorization":
+        f"Bearer {token}",
 
-        headers={
+        "Content-Type":
+        "application/json"
 
-            "Authorization":
-            f"Bearer {token}",
+    }
 
-            "Content-Type":
-            "application/json"
 
-        },
 
-        json=payload,
 
-        timeout=120
+    for attempt in range(3):
+
+
+        try:
+
+
+            response=requests.post(
+
+                url,
+
+                headers=headers,
+
+                json=payload,
+
+                timeout=180
+
+            )
+
+
+
+            print(
+
+                "Cloudflare TTS status:",
+
+                response.status_code
+
+            )
+
+
+
+            if response.status_code == 200:
+
+
+                data=response.json()
+
+
+
+                result=data.get(
+                    "result"
+                )
+
+
+
+                if result:
+
+
+                    audio=result.get(
+                        "audio"
+                    )
+
+
+
+                    if audio:
+
+
+                        audio_file=OUTPUT/"voice.mp3"
+
+
+
+                        with open(
+
+                            audio_file,
+
+                            "wb"
+
+                        ) as f:
+
+
+                            f.write(
+                                bytes.fromhex(audio)
+                            )
+
+
+
+                        print(
+                            "Voice generated"
+                        )
+
+
+                        return str(
+                            audio_file
+                        )
+
+
+
+            print(
+                response.text
+            )
+
+
+        except Exception as e:
+
+
+            print(
+                "TTS attempt failed:",
+                e
+            )
+
+
+
+        time.sleep(5)
+
+
+
+    raise Exception(
+
+        "MeloTTS generation failed after retries"
 
     )
-
-
-
-    print(
-
-        "Cloudflare TTS status:",
-        response.status_code
-
-    )
-
-
-
-    if response.status_code != 200:
-
-        print(
-            response.text
-        )
-
-        raise Exception(
-            "MeloTTS generation failed"
-        )
-
-
-
-    data = response.json()
-
-
-
-    if not data.get(
-        "success"
-    ):
-
-        raise Exception(
-            data
-        )
-
-
-
-    result=data.get(
-        "result"
-    )
-
-
-
-    if not result:
-
-        raise Exception(
-            "Empty audio result"
-        )
-
-
-
-    # Cloudflare AI audio response handling
-
-    if isinstance(
-        result,
-        dict
-    ):
-
-        audio=result.get(
-            "audio"
-        )
-
-    else:
-
-        audio=result
-
-
-
-    if not audio:
-
-        raise Exception(
-            "Audio field missing"
-        )
-
-
-
-    try:
-
-        audio_bytes=base64.b64decode(
-            audio
-        )
-
-
-    except Exception:
-
-
-        audio_bytes=bytes(
-            audio,
-            "utf-8"
-        )
-
-
-
-    output_file = OUTPUT / "voiceover.mp3"
-
-
-
-    with open(
-
-        output_file,
-
-        "wb"
-
-    ) as f:
-
-        f.write(
-            audio_bytes
-        )
-
-
-
-    print(
-
-        "Voice generated:",
-
-        output_file
-
-    )
-
-
-    return output_file
