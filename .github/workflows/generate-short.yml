@@ -6,219 +6,312 @@ on:
 permissions:
   contents: read
 
+
 jobs:
 
   generate-short:
 
     runs-on: ubuntu-latest
 
+
     steps:
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
 
 
-      - name: Install tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
+    - name: Install Python dependencies
+      run: |
+        pip install requests
 
 
-      - name: Generate motivational short
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+    - name: Run AI Content Factory
 
-        run: |
+      env:
+        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
 
-          cat > factory.py <<'PY'
+      run: |
 
-          import os
-          import json
-          import requests
-          from pathlib import Path
+        cat > factory.py <<'PY'
 
+import os
+import json
+import re
+import requests
+from pathlib import Path
+from time import sleep
 
-          # ----------------------------
-          # SETTINGS
-          # ----------------------------
 
-          OUTPUT = Path("output")
-          OUTPUT.mkdir(exist_ok=True)
+OUTPUT = Path("output")
+OUTPUT.mkdir(exist_ok=True)
 
 
-          # ----------------------------
-          # CLOUDFLARE AI
-          # ----------------------------
+# ==============================
+# CLOUDFLARE AI GENERATION
+# ==============================
 
-          def generate_content():
 
-              account = os.environ["CLOUDFLARE_ACCOUNT_ID"]
-              token = os.environ["CLOUDFLARE_API_TOKEN"]
+def call_ai():
 
-              url = (
-                  f"https://api.cloudflare.com/client/v4/"
-                  f"accounts/{account}/ai/run/"
-                  "@cf/meta/llama-3.1-8b-instruct"
-              )
+    account = os.environ["CLOUDFLARE_ACCOUNT_ID"]
+    token = os.environ["CLOUDFLARE_API_TOKEN"]
 
 
-              prompt = {
+    url = (
+        f"https://api.cloudflare.com/client/v4/accounts/"
+        f"{account}/ai/run/@cf/meta/llama-3.1-8b-instruct"
+    )
 
-                  "messages": [
 
-                      {
-                          "role": "system",
-                          "content":
-                          """
-                          You are an expert motivational Shorts writer.
+    prompt = {
 
-                          Create original short-form motivational videos.
+        "messages":[
 
-                          Requirements:
-                          - 30-60 seconds
-                          - powerful opening hook
-                          - emotional progression
-                          - memorable ending
-                          - story-based, not only quotes
-                          - every scene must match narration
+            {
+            "role":"system",
+            "content":
+"""
+You create professional motivational Shorts.
 
-                          Return ONLY JSON.
-                          """
-                      },
+Rules:
+- Write original content.
+- No famous quotes.
+- 35-55 seconds.
+- Story driven.
+- Emotional progression.
+- Visuals must match narration.
 
+Return ONLY JSON.
+"""
+            },
 
-                      {
-                          "role": "user",
-                          "content":
-                          """
-                          Create one motivational Short.
 
-                          Return:
+            {
+            "role":"user",
+            "content":
+"""
+Create one motivational short about discipline.
 
-                          {
-                            "title":"",
-                            "theme":"",
-                            "hook":"",
-                            "narration":"",
-                            "scenes":[
-                              {
-                                "scene":1,
-                                "voice_line":"",
-                                "visual_description":"",
-                                "pexels_search":"",
-                                "caption":""
-                              }
-                            ]
-                          }
+Return exactly:
 
-                          Create 6 scenes.
-                          Topic should be discipline and consistency.
-                          """
-                      }
+{
+"title":"",
+"hook":"",
+"narration":"",
+"scenes":[
+{
+"voice_line":"",
+"visual":"",
+"pexels":"",
+"caption":""
+}
+]
+}
 
-                  ]
+Create exactly 6 scenes.
 
-              }
+Keep every field short.
+"""
+            }
 
+        ],
 
-              r = requests.post(
-                  url,
-                  headers={
-                      "Authorization":f"Bearer {token}",
-                      "Content-Type":"application/json"
-                  },
-                  json=prompt,
-                  timeout=120
-              )
+        "max_tokens":1800
 
+    }
 
-              r.raise_for_status()
 
-              return r.json()
+    response=requests.post(
 
+        url,
 
+        headers={
+        "Authorization":f"Bearer {token}",
+        "Content-Type":"application/json"
+        },
 
-          # ----------------------------
-          # PEXELS
-          # ----------------------------
+        json=prompt,
 
-          def test_pexels(keyword):
+        timeout=120
 
-              key=os.environ["PEXELS_API_KEY"]
+    )
 
-              r=requests.get(
-                  "https://api.pexels.com/videos/search",
-                  headers={
-                      "Authorization":key
-                  },
-                  params={
-                      "query":keyword,
-                      "per_page":3
-                  },
-                  timeout=30
-              )
 
-              r.raise_for_status()
+    response.raise_for_status()
 
-              data=r.json()
 
-              return [
-                  {
-                      "id":x["id"],
-                      "url":x["url"]
-                  }
-                  for x in data.get("videos",[])
-              ]
+    data=response.json()
 
 
+    return data["result"]["response"]
 
-          # ----------------------------
-          # MAIN PIPELINE
-          # ----------------------------
 
 
-          print("Generating motivational concept...")
+# ==============================
+# CLEAN JSON
+# ==============================
 
 
-          result=generate_content()
+def extract_json(text):
 
+    match=re.search(
+        r'\{.*\}',
+        text,
+        re.DOTALL
+    )
 
-          OUTPUT.joinpath(
-              "short_plan.json"
-          ).write_text(
-              json.dumps(
-                  result,
-                  indent=2,
-                  ensure_ascii=False
-              )
-          )
 
+    if not match:
+        raise Exception(
+            "No JSON found"
+        )
 
-          print("Testing visual search...")
 
+    return json.loads(
+        match.group()
+    )
 
-          # simple validation
-          if not result.get("success",True):
-              raise Exception(
-                  "Cloudflare generation failed"
-              )
 
 
-          print("DONE")
+# ==============================
+# VALIDATION
+# ==============================
 
-          PY
 
+def validate(data):
 
-          python factory.py
 
+    required=[
+        "title",
+        "hook",
+        "narration",
+        "scenes"
+    ]
 
 
-      - name: Upload generated Short plan
-        uses: actions/upload-artifact@v4
-        with:
+    for item in required:
 
-          name: motivational-short-plan
+        if item not in data:
+            return False
 
-          path: output/short_plan.json
+
+    if len(data["scenes"]) < 6:
+        return False
+
+
+    for scene in data["scenes"]:
+
+        fields=[
+            "voice_line",
+            "visual",
+            "pexels",
+            "caption"
+        ]
+
+        for f in fields:
+
+            if f not in scene:
+                return False
+
+
+    return True
+
+
+
+# ==============================
+# GENERATION LOOP
+# ==============================
+
+
+print("Starting Motivational Factory")
+
+
+for attempt in range(3):
+
+
+    try:
+
+        print(
+        f"Generation attempt {attempt+1}"
+        )
+
+
+        raw=call_ai()
+
+
+        data=extract_json(raw)
+
+
+        if validate(data):
+
+            break
+
+
+        raise Exception(
+        "Validation failed"
+        )
+
+
+    except Exception as e:
+
+        print(e)
+
+        sleep(3)
+
+
+else:
+
+    raise Exception(
+    "Failed after retries"
+    )
+
+
+
+# ==============================
+# SAVE RESULT
+# ==============================
+
+
+file=OUTPUT/"short_plan.json"
+
+
+file.write_text(
+
+    json.dumps(
+        data,
+        indent=2,
+        ensure_ascii=False
+    ),
+
+    encoding="utf-8"
+
+)
+
+
+print(
+"SUCCESS"
+)
+
+print(
+file
+)
+
+
+PY
+
+
+        python factory.py
+
+
+
+    - name: Upload result
+
+      uses: actions/upload-artifact@v4
+
+      with:
+
+        name: motivational-short-plan
+
+        path: output/short_plan.json
