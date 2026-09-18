@@ -57,6 +57,36 @@ VOICE_PROFILES = {
 }
 
 
+DEFAULT_VOICE_PROFILE = "stoic_male"
+
+
+def select_voice_profile(voice_direction):
+    """Map the AI-selected personality to a configured Kokoro voice.
+
+    Falls back safely to the configured default profile when the AI returns
+    an unknown personality or malformed voice metadata.
+    """
+    if not isinstance(voice_direction, dict):
+        voice_direction = {}
+
+    personality = str(
+        voice_direction.get("personality", "")
+    ).strip().lower()
+
+    profile = VOICE_PROFILES.get(
+        personality,
+        VOICE_PROFILES[DEFAULT_VOICE_PROFILE]
+    )
+
+    profile_name = (
+        personality
+        if personality in VOICE_PROFILES
+        else DEFAULT_VOICE_PROFILE
+    )
+
+    return profile_name, profile
+
+
 OUTPUT = Path("output")
 OUTPUT.mkdir(exist_ok=True)
 
@@ -183,6 +213,8 @@ def cloudflare_generate(feedback=""):
 
                 "content": """
 You are an expert motivational philosophy content director, cinematic short-form producer, and creative strategist.
+
+As an expert motivational philosophy content director, every YouTube video script or content piece must incorporate a new, hooky, and interesting motivational philosophy to ensure compliance with YouTube policies and guidelines. Do not change other content aspects. Focus only on integrating fresh motivational philosophies to prevent repetitive or policy-risk content.
 
 Your mission is to create premium motivational philosophy Shorts, not fictional stories.
 
@@ -1311,52 +1343,152 @@ Format:
 # PEXELS SEARCH
 # =====================================
 
-def pexels_search(query):
+def _safe_number(value, default=0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
 
+
+def _video_candidate_score(video, target_duration=8):
+    """Rank cinematic video candidates without changing the renderer."""
+    width = _safe_number(video.get("width"))
+    height = _safe_number(video.get("height"))
+    duration = _safe_number(video.get("duration"))
+
+    landscape_score = 1.0 if width > height else 0.0
+
+    pixels = width * height
+    if pixels >= 3840 * 2160:
+        resolution_score = 1.0
+    elif pixels >= 2560 * 1440:
+        resolution_score = 0.92
+    elif pixels >= 1920 * 1080:
+        resolution_score = 0.82
+    elif pixels > 0:
+        resolution_score = min(
+            0.75,
+            pixels / (1920 * 1080) * 0.75
+        )
+    else:
+        resolution_score = 0.0
+
+    # Prefer longer usable cinematic clips while still allowing shorter clips.
+    duration_score = min(
+        1.0,
+        max(0.0, duration / max(target_duration, 1))
+    )
+
+    # Prefer candidates with a high-quality preview picture.
+    preview_score = 0.0
+    for picture in video.get("video_pictures", []) or []:
+        pw = _safe_number(picture.get("width"))
+        ph = _safe_number(picture.get("height"))
+        preview_pixels = pw * ph
+        preview_score = max(
+            preview_score,
+            min(
+                1.0,
+                preview_pixels / (1920 * 1080)
+            )
+            if preview_pixels > 0 else 0.0
+        )
+
+    return (
+        resolution_score * 0.40
+        + duration_score * 0.30
+        + landscape_score * 0.20
+        + preview_score * 0.10
+    )
+
+
+def _select_best_video_file(video):
+    """Pick the strongest landscape HD/4K source file."""
+    files = video.get("video_files", []) or []
+
+    candidates = []
+    for file_item in files:
+        width = _safe_number(file_item.get("width"))
+        height = _safe_number(file_item.get("height"))
+
+        if width <= 0 or height <= 0:
+            continue
+
+        landscape = width >= height
+        quality = str(
+            file_item.get("quality", "")
+        ).lower()
+
+        resolution_score = (
+            min(
+                1.0,
+                (width * height) / (3840 * 2160)
+            )
+        )
+
+        quality_bonus = 0.0
+        if quality == "uhd":
+            quality_bonus = 1.0
+        elif quality == "hd":
+            quality_bonus = 0.85
+
+        score = (
+            resolution_score * 0.75
+            + quality_bonus * 0.15
+            + (0.10 if landscape else 0.0)
+        )
+
+        candidates.append(
+            (score, file_item)
+        )
+
+    if not candidates:
+        return {}
+
+    candidates.sort(
+        key=lambda item: item[0],
+        reverse=True
+    )
+
+    return candidates[0][1]
+
+
+def pexels_search(query):
     key = os.environ[
         "PEXELS_API_KEY"
     ]
 
     try:
-
         response = requests.get(
-
             "https://api.pexels.com/videos/search",
-
             headers={
-
                 "Authorization":
                 key
-
             },
-
             params={
-
                 "query":
                 query,
 
+                # More candidates so the ranking logic can choose better footage.
                 "per_page":
-                5
-
+                20
             },
-
             timeout=30
-
         )
 
         response.raise_for_status()
 
         data = response.json()
 
-        results = []
+        ranked = []
 
         for video in data.get(
             "videos",
             []
         ):
+            best_file = _select_best_video_file(video)
 
-            results.append({
-
+            candidate = {
                 "id":
                 video.get(
                     "id"
@@ -1370,19 +1502,213 @@ def pexels_search(query):
                 "duration":
                 video.get(
                     "duration"
-                )
+                ),
 
-            })
+                "width":
+                video.get(
+                    "width"
+                ),
+
+                "height":
+                video.get(
+                    "height"
+                ),
+
+                "quality":
+                best_file.get(
+                    "quality"
+                ),
+
+                "video_file":
+                best_file.get(
+                    "link"
+                ),
+
+                "video_file_width":
+                best_file.get(
+                    "width"
+                ),
+
+                "video_file_height":
+                best_file.get(
+                    "height"
+                ),
+
+                "preview":
+                (
+                    (video.get("video_pictures") or [{}])[0]
+                    .get("picture")
+                )
+            }
+
+            candidate["_score"] = _video_candidate_score(
+                video
+            )
+
+            ranked.append(
+                candidate
+            )
+
+        ranked.sort(
+            key=lambda item: item["_score"],
+            reverse=True
+        )
+
+        results = []
+
+        for candidate in ranked:
+            candidate.pop(
+                "_score",
+                None
+            )
+            results.append(
+                candidate
+            )
 
         return results
 
     except Exception as e:
-
         print(
-            "Pexels search failed:",
+            "Pexels video search failed:",
             e
         )
+        return []
 
+
+def _image_candidate_score(photo):
+    """Rank landscape photo candidates by resolution and preview quality."""
+    width = _safe_number(photo.get("width"))
+    height = _safe_number(photo.get("height"))
+
+    landscape_score = 1.0 if width >= height else 0.0
+
+    pixels = width * height
+    resolution_score = min(
+        1.0,
+        pixels / (3840 * 2160)
+    ) if pixels > 0 else 0.0
+
+    src = photo.get(
+        "src",
+        {}
+    )
+
+    preview_score = 1.0 if src.get(
+        "large2x"
+    ) else (
+        0.7 if src.get("large")
+        else 0.0
+    )
+
+    return (
+        resolution_score * 0.65
+        + landscape_score * 0.25
+        + preview_score * 0.10
+    )
+
+
+def pexels_image_search(query):
+    key = os.environ[
+        "PEXELS_API_KEY"
+    ]
+
+    try:
+        response = requests.get(
+            "https://api.pexels.com/v1/search",
+            headers={
+                "Authorization":
+                key
+            },
+            params={
+                "query":
+                query,
+
+                "orientation":
+                "landscape",
+
+                "per_page":
+                20
+            },
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        ranked = []
+
+        for photo in data.get(
+            "photos",
+            []
+        ):
+            ranked.append(
+                (
+                    _image_candidate_score(photo),
+                    {
+                        "id":
+                        photo.get(
+                            "id"
+                        ),
+
+                        "url":
+                        photo.get(
+                            "url"
+                        ),
+
+                        "width":
+                        photo.get(
+                            "width"
+                        ),
+
+                        "height":
+                        photo.get(
+                            "height"
+                        ),
+
+                        "alt":
+                        photo.get(
+                            "alt"
+                        ),
+
+                        "image":
+                        (
+                            photo.get(
+                                "src",
+                                {}
+                            ).get(
+                                "original"
+                            )
+                        ),
+
+                        "preview":
+                        (
+                            photo.get(
+                                "src",
+                                {}
+                            ).get(
+                                "large2x"
+                            )
+                        )
+                    }
+                )
+            )
+
+        ranked.sort(
+            key=lambda item: item[0],
+            reverse=True
+        )
+
+        return [
+            item[1]
+            for item in ranked
+        ]
+
+    except Exception as e:
+        print(
+            "Pexels image search failed:",
+            e
+        )
         return []
 
 
@@ -1528,6 +1854,69 @@ if final is None:
 # SAVE PRODUCTION BRIEF
 # =====================================
 
+
+voice_profile_name, selected_voice_profile = select_voice_profile(
+    final.get("voice_direction", {})
+)
+
+selected_voice = selected_voice_profile.get(
+    "voice",
+    "am_adam"
+)
+
+final["voice_profile_selected"] = {
+    "profile":
+    voice_profile_name,
+
+    "voice":
+    selected_voice,
+
+    "description":
+    selected_voice_profile.get(
+        "description",
+        ""
+    ),
+
+    "delivery": {
+        "pace":
+        final.get(
+            "voice_direction",
+            {}
+        ).get(
+            "pace",
+            selected_voice_profile.get(
+                "pace",
+                ""
+            )
+        ),
+
+        "emotion":
+        final.get(
+            "voice_direction",
+            {}
+        ).get(
+            "emotion",
+            selected_voice_profile.get(
+                "emotion",
+                ""
+            )
+        ),
+
+        "intensity":
+        final.get(
+            "voice_direction",
+            {}
+        ).get(
+            "intensity",
+            selected_voice_profile.get(
+                "intensity",
+                ""
+            )
+        )
+    }
+}
+
+
 with open(
 
     OUTPUT / "production_brief.json",
@@ -1560,7 +1949,10 @@ print(
 # PEXELS CINEMATIC ASSETS
 # =====================================
 
-assets = []
+assets = {
+    "videos": [],
+    "images": []
+}
 
 
 for scene in final["scenes"]:
@@ -1579,7 +1971,13 @@ for scene in final["scenes"]:
 
     )
 
-    assets.append({
+    images = pexels_image_search(
+
+        scene["pexels_query"]
+
+    )
+
+    assets["videos"].append({
 
         "scene":
         scene["scene"],
@@ -1592,6 +1990,22 @@ for scene in final["scenes"]:
 
         "videos":
         videos
+
+    })
+
+    assets["images"].append({
+
+        "scene":
+        scene["scene"],
+
+        "visual":
+        scene["visual"],
+
+        "pexels_query":
+        scene["pexels_query"],
+
+        "images":
+        images
 
     })
 
@@ -1630,15 +2044,36 @@ print(
 
 narration = final["narration"]
 
-
 print(
-    "Generating cinematic voice..."
+    "Generating cinematic voice with profile:",
+    voice_profile_name,
+    "->",
+    selected_voice
 )
 
 
-generate_voice(
-    narration
-)
+try:
+
+    generate_voice(
+        narration,
+        voice_profile=selected_voice
+    )
+
+except Exception as voice_error:
+
+    print(
+        "Selected voice failed:",
+        voice_error
+    )
+
+    print(
+        "Falling back to am_adam..."
+    )
+
+    generate_voice(
+        narration,
+        voice_profile="am_adam"
+    )
 
 
 print(
