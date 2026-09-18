@@ -2109,23 +2109,6 @@ save_history(
 )
 
 
-# =====================================
-# FINAL VIDEO RENDER
-# =====================================
-
-print(
-    "Starting V6 Premium Video Renderer..."
-)
-
-from renderer import render as render_video
-
-render_video()
-
-print(
-    "Final motivational Short rendered"
-)
-
-
 print(
     """
 =================================
