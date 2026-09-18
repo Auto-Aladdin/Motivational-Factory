@@ -55,13 +55,18 @@ HEIGHT = 1920
 # CAPTION SETTINGS
 # =====================================================
 
-CAPTION_MAX_WIDTH = 920
+CAPTION_MAX_WIDTH = 980
 CAPTION_MIN_FONT_SIZE = 60
 CAPTION_FONT_SIZE = 84
 CAPTION_STROKE = 6
-CAPTION_SPACING = 14
+CAPTION_MARGIN = 4
+CAPTION_SPACING = 10
 CAPTION_CENTER_X = WIDTH / 2
-CAPTION_CENTER_Y = HEIGHT / 2
+# Keep the existing visual position, but clamp the full text/stroke bounding box
+# inside a dedicated vertical safe area so glyphs/borders cannot be cropped.
+CAPTION_SAFE_TOP = 720
+CAPTION_SAFE_BOTTOM = 1200
+CAPTION_CENTER_Y = (CAPTION_SAFE_TOP + CAPTION_SAFE_BOTTOM) / 2
 CAPTION_POP_DURATION = 0.11
 
 # Existing caption-plan colors are preserved.
@@ -118,23 +123,31 @@ def get_audio_duration():
 # =====================================================
 
 
-def fit_vertical(clip):
-    clip = clip.resized(height=HEIGHT)
+def fit_vertical(clip, focus_x=0.5, zoom=1.0):
+    """Fit landscape media into 9:16 with a small, scene-aware crop bias."""
+    zoom = max(1.0, float(zoom))
+    focus_x = min(1.0, max(0.0, float(focus_x)))
+
+    clip = clip.resized(height=HEIGHT * zoom)
 
     if clip.w < WIDTH:
         clip = clip.resized(width=WIDTH)
 
+    x_center = clip.w * focus_x
+    half_width = WIDTH / 2
+    x_center = min(max(half_width, x_center), clip.w - half_width)
+
     # MoviePy 2.x renamed crop -> cropped
     if hasattr(clip, "cropped"):
         return clip.cropped(
-            x_center=clip.w / 2,
+            x_center=x_center,
             y_center=clip.h / 2,
             width=WIDTH,
             height=HEIGHT,
         )
 
     return clip.crop(
-        x_center=clip.w / 2,
+        x_center=x_center,
         y_center=clip.h / 2,
         width=WIDTH,
         height=HEIGHT,
@@ -171,7 +184,7 @@ def download(url, name):
     return path
 
 
-def create_visual(asset, duration):
+def create_visual(asset, duration, focus_x=0.5, zoom=1.0):
     if not asset:
         return ColorClip(
             (WIDTH, HEIGHT),
@@ -203,7 +216,7 @@ def create_visual(asset, duration):
     else:
         clip = ImageClip(str(path)).with_duration(duration)
 
-    return cinematic_grade(fit_vertical(clip))
+    return cinematic_grade(fit_vertical(clip, focus_x=focus_x, zoom=zoom))
 
 
 # =====================================================
@@ -223,81 +236,94 @@ def _find_font_file(patterns):
 
     wanted = [p.lower() for p in patterns]
 
-    for root in roots:
-        if not root.exists():
-            continue
-
-        try:
-            candidates = root.rglob("*")
-        except Exception:
-            continue
-
-        for candidate in candidates:
-            if not candidate.is_file():
-                continue
-            if candidate.suffix.lower() not in {".ttf", ".otf"}:
+    # Preserve the caller's preference order instead of returning whichever
+    # matching font happens to appear first in a filesystem traversal.
+    for token in wanted:
+        for root in roots:
+            if not root.exists():
                 continue
 
-            name = candidate.name.lower()
-            if any(token in name for token in wanted):
-                return str(candidate)
+            try:
+                candidates = root.rglob("*")
+            except Exception:
+                continue
+
+            for candidate in candidates:
+                if not candidate.is_file():
+                    continue
+                if candidate.suffix.lower() not in {".ttf", ".otf"}:
+                    continue
+
+                name = candidate.name.lower()
+                if token in name:
+                    return str(candidate)
 
     return None
 
 
 def resolve_caption_font(theme):
-    """
-    Prefer the requested style fonts when they are installed.
-    GitHub/Linux runners may not ship proprietary fonts, so safe open-font
-    fallbacks are provided without changing the visual hierarchy.
-    """
-
+    """Resolve one intentional whole-video font family from installed fonts."""
     exact = {
+        "warrior": [
+            "InterDisplay-ExtraBold",
+            "Inter-Black",
+            "Lato-Heavy",
+        ],
+        "stoic": [
+            "EBGaramond12-Bold",
+            "EBGaramond12-Regular",
+            "DejaVuSerifCondensed-Bold",
+        ],
+        "cinematic": [
+            "Lato-Black",
+            "Inter-SemiBold",
+            "InterDisplay-SemiBold",
+        ],
+        "calm": [
+            "InterDisplay-SemiBold",
+            "Inter-SemiBold",
+            "Lato-Bold",
+        ],
+        # Backward-compatible theme names.
         "montserrat": [
-            "montserrat-extrabold",
-            "montserrat-black",
-            "montserrat-bold",
+            "InterDisplay-ExtraBold",
+            "Lato-Black",
         ],
         "anton": [
-            "anton-regular",
-            "anton",
+            "InterDisplay-ExtraBold",
+            "DejaVuSansCondensed-Bold",
         ],
         "impact": [
-            "impact",
+            "Inter-Black",
+            "Lato-Heavy",
         ],
         "sfpro": [
-            "sf-pro-display-bold",
-            "sfprodisplay-bold",
-            "sfprodisplay",
+            "InterDisplay-SemiBold",
+            "Lato-Heavy",
         ],
         "helvetica": [
-            "helvetica-bold",
-            "helvetica-neue-bold",
-            "helvetica",
+            "Inter-SemiBold",
+            "LiberationSans-Bold",
         ],
     }
 
     fallbacks = {
-        "montserrat": [
-            "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        ],
-        "anton": [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
-            "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
-        ],
-        "impact": [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
-            "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
-        ],
-        "sfpro": [
+        "warrior": [
+            "/usr/share/fonts/opentype/inter/InterDisplay-ExtraBold.otf",
             "/usr/share/fonts/truetype/lato/Lato-Heavy.ttf",
-            "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
         ],
-        "helvetica": [
-            "/usr/share/fonts/truetype/lato/Lato-Heavy.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "stoic": [
+            "/usr/share/fonts/truetype/ebgaramond/EBGaramond12-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSerifCondensed-Bold.ttf",
+        ],
+        "cinematic": [
+            "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
+            "/usr/share/fonts/opentype/inter/Inter-SemiBold.otf",
+        ],
+        "calm": [
+            "/usr/share/fonts/opentype/inter/InterDisplay-SemiBold.otf",
+            "/usr/share/fonts/truetype/lato/Lato-Bold.ttf",
         ],
     }
 
@@ -305,61 +331,73 @@ def resolve_caption_font(theme):
     if exact_path:
         return exact_path
 
-    for fallback in fallbacks.get(theme, []):
+    for fallback in fallbacks.get(theme, []) + fallbacks.get("cinematic", []):
         if Path(fallback).exists():
             return fallback
 
     return None
 
 
-def choose_caption_theme(narration, caption_plan=None):
-    """Pick a deterministic typography personality from the story topic."""
-    text = str(narration or "").lower()
+def choose_caption_theme(narration, caption_plan=None, brief=None):
+    """Choose one deterministic caption personality for the entire video."""
+    text_parts = [str(narration or "").lower()]
+    if isinstance(brief, dict):
+        creative = brief.get("creative_direction", {}) or {}
+        voice = brief.get("voice_direction", {}) or {}
+        text_parts.extend(str(creative.get(key, "")).lower() for key in (
+            "philosophical_theme", "emotional_arc", "visual_style", "color_mood"
+        ))
+        text_parts.extend(str(voice.get(key, "")).lower() for key in (
+            "personality", "emotion", "intensity", "pace"
+        ))
+
+    text = " ".join(text_parts)
 
     themes = {
-        "anton": {
+        "warrior": {
             "never", "quit", "fight", "hard", "grind", "discipline",
             "sacrifice", "challenge", "prove", "strong", "strength",
             "pain", "failure", "comeback", "rise", "battle", "win",
+            "warrior", "resilience", "determined", "intensity", "power",
         },
-        "montserrat": {
-            "success", "business", "work", "career", "money", "wealth",
-            "focus", "productivity", "goal", "goals", "growth",
-            "confidence", "achievement", "discipline",
+        "stoic": {
+            "marcus", "aurelius", "stoic", "stoicism", "philosophy",
+            "wisdom", "self-control", "self mastery", "mastery", "purpose",
+            "meaning", "ancient", "classical", "reflection", "discipline",
         },
-        "impact": {
-            "warning", "danger", "fear", "broken", "lost", "alone",
-            "failure", "regret", "destroy", "destroyed", "escape",
-            "stop", "wake", "truth",
+        "cinematic": {
+            "loss", "broken", "healing", "emotional", "heart", "lonely",
+            "isolation", "grief", "regret", "hope", "transformation",
+            "cinematic", "melancholic", "empathetic",
         },
-        "sfpro": {
-            "life", "future", "purpose", "meaning", "mind", "choice",
-            "time", "today", "tomorrow", "believe", "thought",
-            "philosophy", "journey", "identity",
+        "calm": {
+            "life", "future", "mind", "choice", "time", "today",
+            "tomorrow", "believe", "thought", "journey", "identity",
+            "calm", "reflective", "gentle", "peace",
         },
     }
 
     scores = {
-        theme: sum(1 for keyword in words if re.search(rf"\b{re.escape(keyword)}\b", text))
-        for theme, words in themes.items()
+        theme: sum(1 for keyword in keywords if re.search(rf"\b{re.escape(keyword)}\b", text))
+        for theme, keywords in themes.items()
     }
 
-    # If the plan contains many hope words, favor the cleaner premium style.
-    if caption_plan:
-        styled = [
-            word
-            for item in caption_plan
-            for word in item.get("words", [])
-        ]
-        hope_count = sum(
-            1 for word in styled
-            if str(word.get("style", "")).lower() == "hope"
-        )
-        if hope_count >= 2:
-            scores["sfpro"] += 2
+    if isinstance(brief, dict):
+        voice_personality = str(
+            brief.get("voice_direction", {}).get("personality", "")
+        ).lower()
+        voice_map = {
+            "stoic_male": "stoic",
+            "power_male": "warrior",
+            "warm_female": "cinematic",
+            "hopeful_female": "calm",
+        }
+        selected = voice_map.get(voice_personality)
+        if selected:
+            scores[selected] += 3
 
-    best = max(scores, key=scores.get) if scores else "montserrat"
-    return best if scores.get(best, 0) > 0 else "montserrat"
+    best = max(scores, key=scores.get) if scores else "cinematic"
+    return best if scores.get(best, 0) > 0 else "cinematic"
 
 
 # =====================================================
@@ -835,6 +873,7 @@ def _make_word_clip(
         "horizontal_align": "center",
         "vertical_align": "center",
         "transparent": True,
+        "margin": (CAPTION_MARGIN, CAPTION_MARGIN),
     }
 
     if font:
@@ -919,7 +958,13 @@ def make_caption_group(group, font):
 
     left = CAPTION_CENTER_X - total_width / 2
     max_height = max(height for _, height in measured)
-    top = CAPTION_CENTER_Y - max_height / 2
+
+    # Clamp the full label box (including its stroke/margins) to the safe area.
+    safe_padding = CAPTION_STROKE + CAPTION_MARGIN
+    raw_top = CAPTION_CENTER_Y - max_height / 2
+    min_top = CAPTION_SAFE_TOP + safe_padding
+    max_top = CAPTION_SAFE_BOTTOM - max_height - safe_padding
+    top = min(max(raw_top, min_top), max_top if max_top >= min_top else min_top)
 
     clips = []
     x_positions = []
@@ -1017,6 +1062,7 @@ def make_caption(text, start, end):
         "horizontal_align": "center",
         "vertical_align": "center",
         "transparent": True,
+        "margin": (CAPTION_MARGIN, CAPTION_MARGIN),
     }
 
     if font:
@@ -1041,7 +1087,8 @@ def build_captions(narration):
     plan = _rebuild_plan_timing(plan, narration, audio)
 
     if plan:
-        theme = choose_caption_theme(narration, plan)
+        brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
+        theme = choose_caption_theme(narration, plan, brief=brief)
         font = resolve_caption_font(theme)
 
         print(
@@ -1063,7 +1110,8 @@ def build_captions(narration):
 
     if timings:
         fallback_groups = _groups_from_aligned_words(timings, plan=None)
-        theme = choose_caption_theme(narration, None)
+        brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
+        theme = choose_caption_theme(narration, None, brief=brief)
         font = resolve_caption_font(theme)
         clips = []
         for group in fallback_groups:
@@ -1111,6 +1159,211 @@ def cleanup_temporary_assets():
 
 
 # =====================================================
+# INTELLIGENT VISUAL SELECTION
+# =====================================================
+
+
+def _token_set(text):
+    return {
+        token
+        for token in re.findall(r"[a-z0-9']+", str(text or "").lower())
+        if len(token) > 2
+    }
+
+
+VISUAL_SEMANTIC_GROUPS = {
+    "ashes": {"ash", "ashes", "burn", "burnt", "ember", "embers", "smoke", "charred", "fire", "forest"},
+    "phoenix": {"phoenix", "rebirth", "rise", "rising", "flame", "fire", "ember", "embers", "ashes"},
+    "solitude": {"alone", "solitude", "lonely", "silhouette", "desolate", "mist", "fog", "isolation", "night"},
+    "doubt": {"doubt", "doubts", "reflection", "mirror", "contemplation", "uncertain", "uncertainty", "thoughtful"},
+    "hope": {"hope", "light", "golden", "sunrise", "glow", "bright", "uplifting"},
+    "strength": {"strength", "warrior", "battle", "training", "power", "strong", "resilience", "sacrifice"},
+    "wisdom": {"ancient", "roman", "marble", "statue", "manuscript", "philosophy", "stoic", "library", "temple"},
+}
+
+
+def _expanded_semantics(tokens):
+    groups = set()
+    for group, members in VISUAL_SEMANTIC_GROUPS.items():
+        if tokens & members:
+            groups.add(group)
+    return groups
+
+
+def _scene_text(scene):
+    visual = scene.get("visual", {}) or {}
+    return " ".join(
+        [
+            str(scene.get("voice_line", "")),
+            str(scene.get("caption", "")),
+            str(scene.get("pexels_query", "")),
+            str(visual.get("type", "")),
+            str(visual.get("subject", "")),
+            str(visual.get("action", "")),
+            str(visual.get("emotion", "")),
+            str(visual.get("environment", "")),
+            str(visual.get("composition", "")),
+        ]
+    )
+
+
+def _asset_text(asset):
+    return " ".join(
+        [
+            str(asset.get("alt", "")),
+            str(asset.get("url", "")),
+            str(asset.get("preview", "")),
+        ]
+    )
+
+
+def _asset_score(asset, scene, asset_type, used_counts):
+    scene_tokens = _token_set(_scene_text(scene))
+    asset_tokens = _token_set(_asset_text(asset))
+    query_tokens = _token_set(scene.get("pexels_query", ""))
+
+    overlap = len(scene_tokens & asset_tokens) / max(len(scene_tokens), 1)
+    query_overlap = len(query_tokens & asset_tokens) / max(len(query_tokens), 1)
+
+    scene_groups = _expanded_semantics(scene_tokens | query_tokens)
+    asset_groups = _expanded_semantics(asset_tokens)
+    semantic_overlap = len(scene_groups & asset_groups) / max(len(scene_groups), 1)
+
+    visual = scene.get("visual", {}) or {}
+    descriptors = " ".join(
+        [
+            str(visual.get("type", "")),
+            str(visual.get("action", "")),
+            str(visual.get("subject", "")),
+            str(visual.get("composition", "")),
+        ]
+    ).lower()
+
+    motion_words = {
+        "walking", "running", "rising", "falling", "training",
+        "fighting", "climbing", "moving", "opening", "turning",
+        "storm", "waves", "wind", "journey", "action", "slow-motion",
+    }
+    still_words = {
+        "object", "statue", "manuscript", "book", "key", "hourglass",
+        "portrait", "close-up", "symbol", "marble", "painting",
+        "reflection", "still", "architecture", "candle", "phoenix",
+        "ashes", "ash", "embers", "flame",
+    }
+
+    type_bias = 0.0
+    if asset_type == "video" and any(word in descriptors for word in motion_words):
+        type_bias += 0.16
+    if asset_type == "image" and any(word in descriptors for word in still_words):
+        type_bias += 0.18
+
+    visual_type = str(visual.get("type", "")).lower()
+    if asset_type == "image" and visual_type in {"close-up", "detail shot", "environmental shot", "symbolic", "still"}:
+        type_bias += 0.10
+    if asset_type == "video" and visual_type in {"action", "slow-motion", "tracking shot", "movement"}:
+        type_bias += 0.10
+
+    # Images are deliberately allowed to win symbolic/abstract beats so the
+    # renderer does not turn every sentence into moving stock footage.
+    symbolic_groups = {"ashes", "phoenix", "doubt", "hope", "wisdom"}
+    if asset_type == "image" and scene_groups & symbolic_groups:
+        type_bias += 0.18
+
+    used = int(used_counts.get(str(asset.get("id")), 0))
+    reuse_penalty = 0.14 * used
+
+    duration_bonus = 0.0
+    if asset_type == "video":
+        duration = _safe_float(asset.get("duration", 0))
+        duration_bonus = min(0.06, max(0.0, duration - 5.0) / 45.0)
+
+    return (
+        overlap * 0.38
+        + query_overlap * 0.16
+        + semantic_overlap * 0.26
+        + type_bias
+        + duration_bonus
+        - reuse_penalty
+    )
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _choose_scene_asset(scene, video_group, image_group, used_counts, previous):
+    candidates = []
+    for asset in video_group or []:
+        if asset.get("video_file"):
+            candidates.append((asset, "video"))
+    for asset in image_group or []:
+        if asset.get("image"):
+            candidates.append((asset, "image"))
+
+    if not candidates:
+        return None, "none", False
+
+    scored = [
+        (_asset_score(asset, scene, asset_type, used_counts), asset, asset_type)
+        for asset, asset_type in candidates
+    ]
+    scored.sort(key=lambda item: item[0], reverse=True)
+
+    # Prefer a fresh asset whenever one is close to the best result.
+    fresh = [
+        item for item in scored
+        if int(used_counts.get(str(item[1].get("id")), 0)) == 0
+    ]
+    if fresh:
+        top_score = scored[0][0]
+        near_best_fresh = [item for item in fresh if item[0] >= top_score - 0.10]
+        if near_best_fresh:
+            _, asset, asset_type = near_best_fresh[0]
+        else:
+            _, asset, asset_type = fresh[0]
+        return asset, asset_type, False
+
+    # Controlled reuse: only reuse a prior asset when the new scene is close
+    # enough to the earlier visual idea, and only up to two total uses.
+    scene_tokens = _token_set(_scene_text(scene))
+    for _, prior_scene, prior_asset in previous:
+        if not prior_asset:
+            continue
+        overlap = len(scene_tokens & _token_set(_scene_text(prior_scene))) / max(len(scene_tokens), 1)
+        if overlap >= 0.35 and int(used_counts.get(str(prior_asset.get("id")), 0)) < 2:
+            for score, asset, asset_type in scored:
+                if str(asset.get("id")) == str(prior_asset.get("id")):
+                    return asset, asset_type, True
+
+    _, asset, asset_type = scored[0]
+    return asset, asset_type, True
+
+
+def _scene_crop_treatment(scene, index, reused=False):
+    visual = scene.get("visual", {}) or {}
+    composition = str(visual.get("composition", "")).lower()
+    focus_x = 0.5
+    if "left" in composition:
+        focus_x = 0.42
+    elif "right" in composition:
+        focus_x = 0.58
+
+    # Deterministic micro-variation prevents repeated assets from becoming
+    # visually identical while preserving the original scene composition.
+    if reused:
+        focus_x += 0.06 if index % 2 == 0 else -0.06
+
+    focus_x = min(0.62, max(0.38, focus_x))
+    zoom = 1.03 + (0.02 * (index % 3))
+    if reused:
+        zoom += 0.02
+    return focus_x, zoom
+
+
+# =====================================================
 # RENDER
 # =====================================================
 
@@ -1134,19 +1387,57 @@ def render():
     render_succeeded = False
 
     try:
-        for scene in brief.get("scenes", []):
-            group = next(
-                (
-                    x for x in assets.get("videos", [])
-                    if x.get("scene") == scene.get("scene")
-                ),
-                {},
+        video_groups = {
+            int(group.get("scene")): group.get("videos", [])
+            for group in assets.get("videos", [])
+            if str(group.get("scene", "")).isdigit()
+        }
+        image_groups = {
+            int(group.get("scene")): group.get("images", [])
+            for group in assets.get("images", [])
+            if str(group.get("scene", "")).isdigit()
+        }
+
+        used_counts = {}
+        previous_selections = []
+
+        for scene_index, scene in enumerate(brief.get("scenes", []), start=1):
+            scene_id = int(scene.get("scene", scene_index))
+            asset, asset_type, reused = _choose_scene_asset(
+                scene,
+                video_groups.get(scene_id, []),
+                image_groups.get(scene_id, []),
+                used_counts,
+                previous_selections,
             )
 
-            candidates = group.get("videos", [])
-            asset = candidates[0] if candidates else None
+            focus_x, zoom = _scene_crop_treatment(
+                scene,
+                scene_index,
+                reused=reused,
+            )
 
-            clips.append(create_visual(asset, duration))
+            if asset:
+                used_counts[str(asset.get("id"))] = int(
+                    used_counts.get(str(asset.get("id")), 0)
+                ) + 1
+
+            previous_selections.append((scene, scene, asset))
+
+            print(
+                f"Scene {scene_id}: visual asset -> {asset_type}"
+                f"{' (controlled reuse)' if reused else ''}"
+                f" id={asset.get('id') if asset else 'none'}"
+            )
+
+            clips.append(
+                create_visual(
+                    asset,
+                    duration,
+                    focus_x=focus_x,
+                    zoom=zoom,
+                )
+            )
 
         video = concatenate_videoclips(
             clips,
