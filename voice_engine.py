@@ -428,7 +428,7 @@ def calculate_pause(sentence):
 # GENERATE KOKORO AUDIO PARTS
 # =====================================================
 
-def generate_parts(narration):
+def generate_parts(narration, voice_profile=None):
 
     pipeline = load_kokoro()
 
@@ -455,9 +455,31 @@ def generate_parts(narration):
     # sentence by sentence.
     # -------------------------------------------------
 
-    profile = select_voice_profile(
-        narration
-    )
+    # Respect an explicit voice supplied by factory.py.
+    # When no explicit voice is supplied, preserve the existing
+    # local AI voice-director behavior exactly as before.
+    if voice_profile:
+
+        requested_voice = str(voice_profile).strip().lower()
+
+        if requested_voice in VOICE_PROFILES:
+            profile = requested_voice
+
+        else:
+            profile = next(
+                (
+                    name
+                    for name, settings in VOICE_PROFILES.items()
+                    if str(settings.get("voice", "")).strip().lower()
+                    == requested_voice
+                ),
+                DEFAULT_PROFILE
+            )
+
+    else:
+        profile = select_voice_profile(
+            narration
+        )
 
     voice_settings = VOICE_PROFILES.get(
         profile,
@@ -778,7 +800,7 @@ def master_voice(input_file):
 # FACTORY ENTRY POINT
 # =====================================================
 
-def generate_voice(narration):
+def generate_voice(narration, voice_profile=None):
 
     print(
         "Generating Kokoro AI-directed motivational voice..."
@@ -793,7 +815,8 @@ def generate_voice(narration):
 
 
     parts = generate_parts(
-        narration
+        narration,
+        voice_profile=voice_profile
     )
 
 
