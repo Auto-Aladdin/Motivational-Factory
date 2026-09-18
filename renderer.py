@@ -60,6 +60,9 @@ CAPTION_MIN_FONT_SIZE = 60
 CAPTION_FONT_SIZE = 84
 CAPTION_STROKE = 6
 CAPTION_MARGIN = 4
+# Extra internal vertical room prevents font/stroke rasterization from clipping
+# the lower edge of glyphs. Horizontal spacing/visual font size stay unchanged.
+CAPTION_VERTICAL_MARGIN = 24
 CAPTION_SPACING = 10
 CAPTION_CENTER_X = WIDTH / 2
 # Keep the existing visual position, but clamp the full text/stroke bounding box
@@ -776,6 +779,36 @@ def _style_lookup_from_plan(plan):
     return lookup
 
 
+def _extend_group_display_windows(groups, audio_duration):
+    """Keep the spoken group visible through pauses without preloading future words."""
+    if not groups:
+        return groups
+
+    normalized = []
+    for index, group in enumerate(groups):
+        item = dict(group)
+        try:
+            current_end = float(item.get("end", item.get("start", 0)))
+        except (TypeError, ValueError):
+            current_end = 0.0
+
+        display_end = current_end
+        if index + 1 < len(groups):
+            try:
+                next_start = float(groups[index + 1].get("start", current_end))
+            except (TypeError, ValueError):
+                next_start = current_end
+            if next_start > display_end:
+                display_end = next_start
+        else:
+            display_end = min(max(display_end, current_end), float(audio_duration))
+
+        item["display_end"] = display_end
+        normalized.append(item)
+
+    return normalized
+
+
 def _groups_from_aligned_words(words, plan=None, max_words=5):
     """Build readable caption groups while retaining exact word timings."""
     style_lookup = _style_lookup_from_plan(plan or [])
@@ -840,13 +873,16 @@ def _rebuild_plan_timing(plan, narration, audio_path):
         and _plan_matches_narration(plan, narration)
         and _plan_has_real_audio_timing(plan, duration)
     ):
-        return plan
+        return _extend_group_display_windows(plan, duration)
 
     aligned = caption_segments(audio_path, narration)
     if not aligned:
         return []
 
-    return _groups_from_aligned_words(aligned, plan=plan)
+    return _extend_group_display_windows(
+        _groups_from_aligned_words(aligned, plan=plan),
+        duration,
+    )
 
 
 # =====================================================
@@ -873,7 +909,7 @@ def _make_word_clip(
         "horizontal_align": "center",
         "vertical_align": "center",
         "transparent": True,
-        "margin": (CAPTION_MARGIN, CAPTION_MARGIN),
+        "margin": (CAPTION_MARGIN, CAPTION_VERTICAL_MARGIN),
     }
 
     if font:
@@ -976,10 +1012,14 @@ def make_caption_group(group, font):
 
     group_start = float(group["start"])
     group_end = float(group["end"])
-    group_duration = max(0.05, group_end - group_start)
+    # Keep the already-spoken caption on screen through an audio pause, but
+    # never reveal a future word before its own spoken timestamp.
+    display_end = max(group_end, float(group.get("display_end", group_end)))
 
-    # Base sentence: all words remain visible together.
     for index, word in enumerate(words):
+        word_start = max(group_start, float(word["start"]))
+        word_duration = max(0.01, display_end - word_start)
+
         base = _make_word_clip(
             word["word"],
             font,
@@ -988,8 +1028,8 @@ def make_caption_group(group, font):
         )
         base = (
             base.with_position((x_positions[index], top))
-            .with_start(group_start)
-            .with_duration(group_duration)
+            .with_start(word_start)
+            .with_duration(word_duration)
         )
         clips.append(base)
 
@@ -1033,7 +1073,19 @@ def make_caption_group(group, font):
                 center_x = x_positions[index] + measured[index][0] / 2
                 center_y = top + max_height / 2
                 pop_x = center_x - pop.w / 2
-                pop_y = center_y - pop.h / 2
+                raw_pop_y = center_y - pop.h / 2
+
+                pop_min_y = CAPTION_SAFE_TOP + CAPTION_STROKE + CAPTION_MARGIN
+                pop_max_y = (
+                    CAPTION_SAFE_BOTTOM
+                    - pop.h
+                    - CAPTION_STROKE
+                    - CAPTION_MARGIN
+                )
+                if pop_max_y >= pop_min_y:
+                    pop_y = min(max(raw_pop_y, pop_min_y), pop_max_y)
+                else:
+                    pop_y = pop_min_y
 
                 pop = (
                     pop.with_position((pop_x, pop_y))
@@ -1062,7 +1114,7 @@ def make_caption(text, start, end):
         "horizontal_align": "center",
         "vertical_align": "center",
         "transparent": True,
-        "margin": (CAPTION_MARGIN, CAPTION_MARGIN),
+        "margin": (CAPTION_MARGIN, CAPTION_VERTICAL_MARGIN),
     }
 
     if font:
@@ -1109,7 +1161,10 @@ def build_captions(narration):
     timings = caption_segments(audio, narration)
 
     if timings:
-        fallback_groups = _groups_from_aligned_words(timings, plan=None)
+        fallback_groups = _extend_group_display_windows(
+            _groups_from_aligned_words(timings, plan=None),
+            get_audio_duration(),
+        )
         brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
         theme = choose_caption_theme(narration, None, brief=brief)
         font = resolve_caption_font(theme)
