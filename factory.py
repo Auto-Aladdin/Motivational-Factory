@@ -2102,6 +2102,21 @@ print(
 
 
 # =====================================
+# V6 VIDEO RENDERER
+# =====================================
+
+print(
+    "Starting V6 cinematic renderer..."
+)
+
+render()
+
+print(
+    "Video rendering completed"
+)
+
+
+# =====================================
 # SAVE GENERATION MEMORY
 # =====================================
 
