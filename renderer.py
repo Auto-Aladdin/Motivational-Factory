@@ -20,21 +20,61 @@ Output:
 import json
 import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import requests
 import numpy as np
 
-from moviepy import (
-    VideoFileClip,
-    ImageClip,
-    AudioFileClip,
-    CompositeAudioClip,
-    CompositeVideoClip,
-    ColorClip,
-    vfx,
-    afx,
-)
+# -----------------------------------------------------
+# Renderer dependency bootstrap
+# -----------------------------------------------------
+# The production pipeline already calls this renderer after
+# voice/caption generation. Some CI runners do not preinstall
+# MoviePy, so importing the renderer can otherwise stop the
+# entire pipeline before render() is reached. Install only the
+# missing renderer dependency; no pipeline logic is changed.
+try:
+    from moviepy import (
+        VideoFileClip,
+        ImageClip,
+        AudioFileClip,
+        CompositeAudioClip,
+        CompositeVideoClip,
+        ColorClip,
+        vfx,
+        afx,
+    )
+except ModuleNotFoundError as exc:
+    if exc.name != "moviepy":
+        raise
+
+    print("MoviePy is not installed. Installing the renderer dependency...")
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-input",
+            "moviepy>=2.0,<3",
+        ],
+        check=True,
+    )
+
+    from moviepy import (
+        VideoFileClip,
+        ImageClip,
+        AudioFileClip,
+        CompositeAudioClip,
+        CompositeVideoClip,
+        ColorClip,
+        vfx,
+        afx,
+    )
 
 from PIL import (
     Image,
