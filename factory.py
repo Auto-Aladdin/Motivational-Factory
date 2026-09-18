@@ -1714,6 +1714,115 @@ def pexels_image_search(query):
 
 
 # =====================================
+# LIGHTWEIGHT SEO METADATA
+# Generated from the actual story without another API call.
+# =====================================
+
+def _seo_tokens(*values):
+    tokens = []
+    seen = set()
+    stop_words = {
+        "the", "and", "for", "with", "from", "that", "this",
+        "your", "you", "our", "are", "can", "but", "into", "about",
+        "what", "when", "where", "how", "why", "its", "it's",
+        "a", "an", "to", "of", "in", "on", "is", "be", "it",
+    }
+    for value in values:
+        for token in re.findall(r"[A-Za-z0-9']+", str(value or "").lower()):
+            if len(token) < 3 or token in stop_words or token in seen:
+                continue
+            seen.add(token)
+            tokens.append(token)
+    return tokens
+
+
+def build_seo_metadata(data):
+    title = re.sub(r"\s+", " ", str(data.get("title", "Motivational Short")).strip())
+    theme = str(data.get("theme", "")).strip()
+    creative = data.get("creative_direction", {}) or {}
+    philosophy = str(creative.get("philosophical_theme", "")).strip()
+    visual_style = str(creative.get("visual_style", "")).strip()
+    narration = re.sub(r"\s+", " ", str(data.get("narration", "")).strip())
+
+    keyword_pool = _seo_tokens(
+        title,
+        theme,
+        philosophy,
+        visual_style,
+        data.get("hook", ""),
+    )
+
+    # Keep a compact set of natural, high-intent terms, then add only a few
+    # topic-specific terms from the actual generated concept.
+    keywords = [
+        "motivational speech",
+        "motivation",
+        "mindset",
+    ]
+
+    topic_phrases = [
+        ("discipline", {"discipline"}),
+        ("overcoming fear", {"fear", "overcoming"}),
+        ("failure and growth", {"failure", "growth"}),
+        ("resilience", {"resilience", "strength"}),
+        ("self mastery", {"mastery", "self"}),
+        ("personal growth", {"growth", "journey", "transformation"}),
+        ("stoic philosophy", {"stoic", "stoicism", "philosophy"}),
+    ]
+    for phrase, triggers in topic_phrases:
+        if any(trigger in keyword_pool for trigger in triggers):
+            keywords.append(phrase)
+
+    for token in keyword_pool:
+        if token not in {"motivational", "speech"} and token not in " ".join(keywords):
+            keywords.append(token)
+        if len(keywords) >= 10:
+            break
+
+    primary_tags = [
+        "motivation",
+        "motivationalshorts",
+        "mindset",
+    ]
+    topic_map = {
+        "discipline": "discipline",
+        "stoic": "stoicism",
+        "stoicism": "stoicism",
+        "resilience": "resilience",
+        "success": "success",
+        "self": "selfmastery",
+        "growth": "personalgrowth",
+        "fear": "overcomefear",
+        "strength": "innerstrength",
+    }
+    for token in keyword_pool:
+        tag = topic_map.get(token)
+        if tag and tag not in primary_tags:
+            primary_tags.append(tag)
+        if len(primary_tags) >= 7:
+            break
+
+    description_intro = narration
+    if len(description_intro) > 420:
+        description_intro = description_intro[:417].rsplit(" ", 1)[0] + "..."
+
+    subject = theme.lower() or philosophy.lower() or "mindset, discipline, and personal growth"
+    style_phrase = visual_style.lower() or "cinematic"
+    description = (
+        f"{description_intro}\n\n"
+        f"This cinematic motivational short explores {subject}. "
+        f"It combines focused narration with a visual style of {style_phrase}, designed to reinforce the message about mindset, discipline, and personal growth."
+    )
+
+    return {
+        "title": title,
+        "description": description,
+        "keywords": keywords[:12],
+        "hashtags": [f"#{tag}" for tag in primary_tags[:7]],
+    }
+
+
+# =====================================
 # MAIN PIPELINE
 # =====================================
 
@@ -1854,6 +1963,12 @@ if final is None:
 # =====================================
 # SAVE PRODUCTION BRIEF
 # =====================================
+
+
+final["seo"] = build_seo_metadata(final)
+final["description"] = final["seo"]["description"]
+final["keywords"] = final["seo"]["keywords"]
+final["hashtags"] = final["seo"]["hashtags"]
 
 
 voice_profile_name, selected_voice_profile = select_voice_profile(
