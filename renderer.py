@@ -73,10 +73,10 @@ def get_audio_duration():
 
 
 def fit_vertical(clip):
-    clip = clip.resize(height=HEIGHT)
+    clip = clip.resized(height=HEIGHT)
 
     if clip.w < WIDTH:
-        clip = clip.resize(width=WIDTH)
+        clip = clip.resized(width=WIDTH)
 
     return clip.crop(
         x_center=clip.w / 2,
@@ -91,7 +91,7 @@ def cinematic_grade(clip):
         (WIDTH, HEIGHT),
         color=(0, 0, 0),
         duration=clip.duration
-    ).set_opacity(0.42)
+    ).with_opacity(0.42)
 
     return CompositeVideoClip(
         [clip, overlay]
@@ -139,10 +139,10 @@ def create_visual(asset, duration):
 
     if is_video:
         clip = VideoFileClip(str(path))
-        clip = clip.subclip(0, min(duration, clip.duration))
+        clip = clip.subclipped(0, min(duration, clip.duration))
     else:
-        clip = ImageClip(str(path)).set_duration(duration)
-        clip = clip.resize(
+        clip = ImageClip(str(path)).with_duration(duration)
+        clip = clip.resized(
             lambda t: 1.02 + 0.015*t
         )
 
@@ -196,11 +196,11 @@ def make_caption(text, start, end):
         align="center"
     )
 
-    txt = txt.set_position(
+    txt = txt.with_position(
         ("center", 1350)
     )
 
-    return txt.set_start(start).set_duration(duration)
+    return txt.with_start(start).with_duration(duration)
 
 
 def build_captions(narration):
@@ -303,11 +303,11 @@ def render():
         if (OUTPUT / "music.mp3").exists():
             music = AudioFileClip(
                 str(OUTPUT / "music.mp3")
-            ).volumex(0.15)
+            ).with_volume_scaled(0.15)
 
             audio_tracks.append(music)
 
-        video = video.set_audio(
+        video = video.with_audio(
             CompositeAudioClip(audio_tracks)
         )
 
