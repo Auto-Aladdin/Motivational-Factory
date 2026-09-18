@@ -1551,52 +1551,182 @@ def _safe_float(value, default=0.0):
         return float(default)
 
 
-def _choose_scene_asset(scene, video_group, image_group, used_counts, previous):
-    candidates = []
-    for asset in video_group or []:
-        if asset.get("video_file"):
-            candidates.append((asset, "video"))
-    for asset in image_group or []:
-        if asset.get("image"):
-            candidates.append((asset, "image"))
+SHORT_FORMAT_HISTORY_GROUPS = {
+    "historical",
+    "warrior",
+    "ancient",
+    "stoic",
+    "classical",
+    "statue",
+    "sculpture",
+    "roman",
+    "greek",
+    "civilization",
+    "leader",
+    "leaders",
+    "philosopher",
+}
+
+SHORT_FORMAT_MOTION_WORDS = {
+    "action", "active", "battle", "battling", "climb", "climbing",
+    "drive", "driving", "fight", "fighting", "journey", "moving",
+    "movement", "run", "running", "storm", "training", "travel",
+    "walking", "waves", "wind", "motion", "slow-motion", "tracking",
+    "chase", "escape", "breakthrough", "workout", "sprinting",
+}
+
+SHORT_FORMAT_STILL_WORDS = {
+    "ancient", "aurelius", "marble", "manuscript", "portrait",
+    "sculpture", "statue", "painting", "classical", "roman", "greek",
+    "philosopher", "historical", "leader", "leaders", "wisdom",
+    "stoic", "stoicism", "civilization", "symbolic", "symbolism",
+    "still", "monument", "bust", "relief",
+}
+
+
+def _full_short_text(brief):
+    """Build one deterministic text representation for whole-Short format choice."""
+    if not isinstance(brief, dict):
+        return ""
+
+    parts = [
+        str(brief.get("title", "")),
+        str(brief.get("theme", "")),
+        str(brief.get("narration", "")),
+        str(brief.get("hook", "")),
+    ]
+
+    creative = brief.get("creative_direction", {}) or {}
+    voice = brief.get("voice_direction", {}) or {}
+    parts.extend(
+        str(creative.get(key, ""))
+        for key in ("philosophical_theme", "visual_style", "emotional_arc", "color_mood", "ending_style")
+    )
+    parts.extend(
+        str(voice.get(key, ""))
+        for key in ("emotion", "intensity", "pace", "personality")
+    )
+
+    for scene in brief.get("scenes", []) or []:
+        parts.append(_scene_text(scene))
+
+    return " ".join(parts).lower()
+
+
+def _determine_short_asset_type(brief, assets):
+    """Choose ONE visual format for the entire Short. Never mix formats."""
+    text = _full_short_text(brief)
+    tokens = _token_set(text)
+
+    # Historical / classical strength figures are explicitly image-first.
+    historical_hits = len(tokens & SHORT_FORMAT_HISTORY_GROUPS)
+    if historical_hits >= 2 or any(phrase in text for phrase in (
+        "marcus aurelius",
+        "powerful historical figure",
+        "historical strength figure",
+        "legendary warrior",
+        "ancient warrior",
+        "classical statue",
+        "roman emperor",
+        "ancient civilization",
+    )):
+        return "image"
+
+    motion_score = len(tokens & SHORT_FORMAT_MOTION_WORDS)
+    still_score = len(tokens & SHORT_FORMAT_STILL_WORDS)
+
+    creative = brief.get("creative_direction", {}) if isinstance(brief, dict) else {}
+    visual_style = str(creative.get("visual_style", "")).lower()
+    philosophical_theme = str(creative.get("philosophical_theme", "")).lower()
+
+    if "symbolic" in visual_style or "portrait" in visual_style:
+        still_score += 2
+    if "cinematic" in visual_style or "dynamic" in visual_style or "action" in visual_style:
+        motion_score += 2
+    if any(term in philosophical_theme for term in ("stoic", "ancient", "classical", "wisdom")):
+        still_score += 2
+
+    # Strong action/movement concepts should genuinely use footage when available.
+    if motion_score >= still_score + 2:
+        preferred = "video"
+    elif still_score >= motion_score + 2:
+        preferred = "image"
+    else:
+        # Default toward video when both formats are plausible so the factory
+        # does not drift into image-only output.
+        preferred = "video"
+
+    available = {
+        "video": any(group.get("videos") for group in assets.get("videos", [])),
+        "image": any(group.get("images") for group in assets.get("images", [])),
+    }
+
+    if available.get(preferred):
+        return preferred
+    if available.get("video"):
+        return "video"
+    if available.get("image"):
+        return "image"
+    return preferred
+
+
+def _choose_scene_asset(scene, video_group, image_group, used_counts, previous, selected_asset_type):
+    """Choose the best asset, restricted to the Short-wide selected format."""
+    if selected_asset_type == "video":
+        candidates = [
+            (asset, "video")
+            for asset in (video_group or [])
+            if asset.get("video_file")
+        ]
+    else:
+        candidates = [
+            (asset, "image")
+            for asset in (image_group or [])
+            if asset.get("image")
+        ]
 
     if not candidates:
         return None, "none", False
 
     scored = [
-        (_asset_score(asset, scene, asset_type, used_counts), asset, asset_type)
-        for asset, asset_type in candidates
+        (_asset_score(asset, scene, selected_asset_type, used_counts), asset, selected_asset_type)
+        for asset, _ in candidates
     ]
     scored.sort(key=lambda item: item[0], reverse=True)
 
     # Prefer a fresh asset whenever one is close to the best result.
     fresh = [
-        item for item in scored
+        item
+        for item in scored
         if int(used_counts.get(str(item[1].get("id")), 0)) == 0
     ]
     if fresh:
         top_score = scored[0][0]
         near_best_fresh = [item for item in fresh if item[0] >= top_score - 0.10]
         if near_best_fresh:
-            _, asset, asset_type = near_best_fresh[0]
+            _, asset, _ = near_best_fresh[0]
         else:
-            _, asset, asset_type = fresh[0]
-        return asset, asset_type, False
+            _, asset, _ = fresh[0]
+        return asset, selected_asset_type, False
 
-    # Controlled reuse: only reuse a prior asset when the new scene is close
-    # enough to the earlier visual idea, and only up to two total uses.
+    # Controlled reuse stays inside the selected whole-Short format.
     scene_tokens = _token_set(_scene_text(scene))
     for _, prior_scene, prior_asset in previous:
         if not prior_asset:
             continue
+        if selected_asset_type == "video" and not prior_asset.get("video_file"):
+            continue
+        if selected_asset_type == "image" and not prior_asset.get("image"):
+            continue
+
         overlap = len(scene_tokens & _token_set(_scene_text(prior_scene))) / max(len(scene_tokens), 1)
         if overlap >= 0.35 and int(used_counts.get(str(prior_asset.get("id")), 0)) < 2:
-            for score, asset, asset_type in scored:
+            for score, asset, _ in scored:
                 if str(asset.get("id")) == str(prior_asset.get("id")):
-                    return asset, asset_type, True
+                    return asset, selected_asset_type, True
 
-    _, asset, asset_type = scored[0]
-    return asset, asset_type, True
+    _, asset, _ = scored[0]
+    return asset, selected_asset_type, True
 
 
 def _scene_crop_treatment(scene, index, reused=False):
@@ -1655,6 +1785,9 @@ def render():
             if str(group.get("scene", "")).isdigit()
         }
 
+        selected_asset_type = _determine_short_asset_type(brief, assets)
+        print(f"Whole-Short visual format: {selected_asset_type.upper()} assets only")
+
         used_counts = {}
         previous_selections = []
 
@@ -1666,6 +1799,7 @@ def render():
                 image_groups.get(scene_id, []),
                 used_counts,
                 previous_selections,
+                selected_asset_type,
             )
 
             focus_x, zoom = _scene_crop_treatment(
