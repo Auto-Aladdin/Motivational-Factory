@@ -9,6 +9,7 @@ from datetime import datetime
 
 from voice_engine import generate_voice
 from caption_engine import create_caption_plan
+from renderer import render
 
 
 
