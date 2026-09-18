@@ -455,28 +455,39 @@ def generate_parts(narration, voice_profile=None):
     # sentence by sentence.
     # -------------------------------------------------
 
-    # Respect an explicit voice supplied by factory.py.
-    # When no explicit voice is supplied, preserve the existing
-    # local AI voice-director behavior exactly as before.
+    # Respect an explicit profile/voice supplied by factory.py.
+    # When omitted, preserve the original local deterministic
+    # AI Voice Director behavior.
     if voice_profile:
 
-        requested_voice = str(voice_profile).strip().lower()
+        requested_voice = str(
+            voice_profile
+        ).strip().lower()
 
         if requested_voice in VOICE_PROFILES:
+
             profile = requested_voice
 
         else:
+
             profile = next(
                 (
                     name
-                    for name, settings in VOICE_PROFILES.items()
-                    if str(settings.get("voice", "")).strip().lower()
+                    for name, settings
+                    in VOICE_PROFILES.items()
+                    if str(
+                        settings.get(
+                            "voice",
+                            ""
+                        )
+                    ).strip().lower()
                     == requested_voice
                 ),
                 DEFAULT_PROFILE
             )
 
     else:
+
         profile = select_voice_profile(
             narration
         )
