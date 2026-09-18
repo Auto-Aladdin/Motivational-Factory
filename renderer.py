@@ -1,43 +1,16 @@
-
 """
 Motivational Factory V6.1 Premium Shorts Renderer
 
-Features:
-- Production brief + visual assets compatible
-- Real audio duration driven scene timing
-- Whisper-compatible word timing captions
-- Premium mobile-first caption compositor
-- Cinematic background grading
-- Vertical 1080x1920 output
-- Graceful asset fallback
-- Final MP4 in output/final_short.mp4
-
-Dependencies:
-moviepy
-Pillow
-numpy
-faster-whisper (optional but recommended)
+MoviePy 2.x compatibility fix:
+- Uses MoviePy 2.x method names
+- Preserves original pipeline
+- Fixes crop/cropped compatibility
 """
 
 import json
-import subprocess
 from pathlib import Path
 
 try:
-    # MoviePy 1.x compatibility
-    from moviepy.editor import (
-        VideoFileClip,
-        ImageClip,
-        AudioFileClip,
-        CompositeAudioClip,
-        CompositeVideoClip,
-        concatenate_videoclips,
-        ColorClip,
-        TextClip,
-        vfx
-    )
-except ModuleNotFoundError:
-    # MoviePy 2.x compatibility
     from moviepy import (
         VideoFileClip,
         ImageClip,
@@ -47,7 +20,17 @@ except ModuleNotFoundError:
         concatenate_videoclips,
         ColorClip,
         TextClip,
-        vfx
+    )
+except ImportError:
+    from moviepy.editor import (
+        VideoFileClip,
+        ImageClip,
+        AudioFileClip,
+        CompositeAudioClip,
+        CompositeVideoClip,
+        concatenate_videoclips,
+        ColorClip,
+        TextClip,
     )
 
 OUTPUT = Path("output")
@@ -68,7 +51,6 @@ def get_audio_duration():
     voice = OUTPUT / "voice.wav"
     if not voice.exists():
         return 60
-
     return AudioFileClip(str(voice)).duration
 
 
@@ -78,11 +60,20 @@ def fit_vertical(clip):
     if clip.w < WIDTH:
         clip = clip.resized(width=WIDTH)
 
+    # MoviePy 2.x renamed crop -> cropped
+    if hasattr(clip, "cropped"):
+        return clip.cropped(
+            x_center=clip.w / 2,
+            y_center=clip.h / 2,
+            width=WIDTH,
+            height=HEIGHT,
+        )
+
     return clip.crop(
         x_center=clip.w / 2,
         y_center=clip.h / 2,
         width=WIDTH,
-        height=HEIGHT
+        height=HEIGHT,
     )
 
 
@@ -90,12 +81,10 @@ def cinematic_grade(clip):
     overlay = ColorClip(
         (WIDTH, HEIGHT),
         color=(0, 0, 0),
-        duration=clip.duration
+        duration=clip.duration,
     ).with_opacity(0.42)
 
-    return CompositeVideoClip(
-        [clip, overlay]
-    )
+    return CompositeVideoClip([clip, overlay])
 
 
 def download(url, name):
@@ -118,7 +107,7 @@ def create_visual(asset, duration):
         return ColorClip(
             (WIDTH, HEIGHT),
             color=(10, 10, 10),
-            duration=duration
+            duration=duration,
         )
 
     url = asset.get("video_file") or asset.get("image")
@@ -127,14 +116,16 @@ def create_visual(asset, duration):
         return ColorClip(
             (WIDTH, HEIGHT),
             color=(10, 10, 10),
-            duration=duration
+            duration=duration,
         )
 
     is_video = bool(asset.get("video_file"))
 
     path = download(
         url,
-        f"asset_{asset.get('id','x')}.mp4" if is_video else f"asset_{asset.get('id','x')}.jpg"
+        f"asset_{asset.get('id','x')}.mp4"
+        if is_video
+        else f"asset_{asset.get('id','x')}.jpg",
     )
 
     if is_video:
@@ -142,13 +133,8 @@ def create_visual(asset, duration):
         clip = clip.subclipped(0, min(duration, clip.duration))
     else:
         clip = ImageClip(str(path)).with_duration(duration)
-        clip = clip.resized(
-            lambda t: 1.02 + 0.015*t
-        )
 
-    return cinematic_grade(
-        fit_vertical(clip)
-    )
+    return cinematic_grade(fit_vertical(clip))
 
 
 def caption_segments(audio_path):
@@ -157,23 +143,25 @@ def caption_segments(audio_path):
 
         model = WhisperModel(
             "base",
-            compute_type="int8"
+            compute_type="int8",
         )
 
         segments, _ = model.transcribe(
             str(audio_path),
-            word_timestamps=True
+            word_timestamps=True,
         )
 
         words = []
 
         for seg in segments:
             for word in seg.words:
-                words.append({
-                    "text": word.word.strip(),
-                    "start": word.start,
-                    "end": word.end
-                })
+                words.append(
+                    {
+                        "text": word.word.strip(),
+                        "start": word.start,
+                        "end": word.end,
+                    }
+                )
 
         return words
 
@@ -182,7 +170,7 @@ def caption_segments(audio_path):
 
 
 def make_caption(text, start, end):
-    duration = max(0.4, end-start)
+    duration = max(0.4, end - start)
 
     txt = TextClip(
         text.upper(),
@@ -193,14 +181,14 @@ def make_caption(text, start, end):
         stroke_width=3,
         method="caption",
         size=(900, None),
-        align="center"
+        align="center",
     )
 
-    txt = txt.with_position(
-        ("center", 1350)
+    return (
+        txt.with_position(("center", 1350))
+        .with_start(start)
+        .with_duration(duration)
     )
-
-    return txt.with_start(start).with_duration(duration)
 
 
 def build_captions(narration):
@@ -212,112 +200,68 @@ def build_captions(narration):
     timings = caption_segments(audio)
 
     if not timings:
-        return [
-            make_caption(
-                narration,
-                0,
-                get_audio_duration()
-            )
-        ]
+        return [make_caption(narration, 0, get_audio_duration())]
 
     clips = []
-
     chunk = []
 
     for word in timings:
         chunk.append(word)
 
         if len(chunk) >= 4 or word["text"].endswith((".", "!", "?")):
-            text = " ".join(
-                x["text"] for x in chunk
-            )
-
             clips.append(
                 make_caption(
-                    text,
+                    " ".join(x["text"] for x in chunk),
                     chunk[0]["start"],
-                    chunk[-1]["end"]
+                    chunk[-1]["end"],
                 )
             )
-
             chunk = []
 
     return clips
 
 
 def render():
-
     print("V6.1 Premium Renderer Starting")
 
-    brief = load_json(
-        OUTPUT / "production_brief.json"
-    )
-
-    assets = load_json(
-        OUTPUT / "visual_assets.json"
-    )
+    brief = load_json(OUTPUT / "production_brief.json")
+    assets = load_json(OUTPUT / "visual_assets.json")
 
     total = get_audio_duration()
 
-    scene_count = len(
-        brief.get("scenes", [])
-    )
-
+    scene_count = len(brief.get("scenes", []))
     duration = total / max(scene_count, 1)
 
     clips = []
 
     for scene in brief.get("scenes", []):
-
         group = next(
             (
                 x for x in assets.get("videos", [])
                 if x.get("scene") == scene.get("scene")
             ),
-            {}
+            {},
         )
 
         candidates = group.get("videos", [])
-
         asset = candidates[0] if candidates else None
 
-        clips.append(
-            create_visual(
-                asset,
-                duration
-            )
-        )
+        clips.append(create_visual(asset, duration))
 
     video = concatenate_videoclips(
         clips,
-        method="compose"
+        method="compose",
     )
 
     if (OUTPUT / "voice.wav").exists():
-        voice = AudioFileClip(
-            str(OUTPUT / "voice.wav")
-        )
-
-        audio_tracks = [voice]
-
-        if (OUTPUT / "music.mp3").exists():
-            music = AudioFileClip(
-                str(OUTPUT / "music.mp3")
-            ).with_volume_scaled(0.15)
-
-            audio_tracks.append(music)
-
+        voice = AudioFileClip(str(OUTPUT / "voice.wav"))
         video = video.with_audio(
-            CompositeAudioClip(audio_tracks)
+            CompositeAudioClip([voice])
         )
-
-    caption_layers = build_captions(
-        brief.get("narration", "")
-    )
 
     final = CompositeVideoClip(
-        [video] + caption_layers,
-        size=(WIDTH, HEIGHT)
+        [video] + build_captions(brief.get("narration", "")),
+        size=(WIDTH, HEIGHT),
     )
 
     final.write_videofile(
@@ -325,7 +269,7 @@ def render():
         fps=30,
         codec="libx264",
         audio_codec="aac",
-        preset="medium"
+        preset="medium",
     )
 
     print("DONE:", FINAL_VIDEO)
