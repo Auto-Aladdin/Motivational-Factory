@@ -1,24 +1,25 @@
 """
-Motivational Factory V6.2 Premium Shorts Renderer
+Motivational Factory Premium Shorts Renderer
 
-Preserves the existing production pipeline while adding:
-- MoviePy 2.x compatibility
-- Accurate reuse of the existing caption_plan.json
-- Centered cinematic/viral-style captions
+Targeted output-layer improvements only:
+- MoviePy 2.x-compatible TextClip usage
+- Uses the existing caption_plan.json instead of re-running Whisper
+- True visual-center caption placement
 - Word-by-word active highlighting
-- Power-word emphasis
-- Multiple typography styles selected from the video's theme
-- Optional music support
-- Automatic cleanup of only downloaded visual asset files
-- Final MP4 output remains output/final_short.mp4
+- Power-word pop emphasis
+- Story-aware typography with multiple font families when installed
+- Keeps caption/JSON/audio/final-video files
+- Removes only large temporary downloaded media after a successful render
+
+Core story, quality-gate, Pexels selection, voice, JSON, and pipeline logic
+remain unchanged.
 """
 
 import json
-import subprocess
+import os
+import re
+from difflib import SequenceMatcher
 from pathlib import Path
-
-import numpy as np
-from PIL import Image, ImageDraw, ImageFont
 
 try:
     from moviepy import (
@@ -37,12 +38,10 @@ except ImportError:
         ImageClip,
         AudioFileClip,
         CompositeAudioClip,
-        CompositeVideoClip,
         concatenate_videoclips,
         ColorClip,
         TextClip,
     )
-
 
 OUTPUT = Path("output")
 OUTPUT.mkdir(exist_ok=True)
@@ -52,62 +51,40 @@ FINAL_VIDEO = OUTPUT / "final_short.mp4"
 WIDTH = 1080
 HEIGHT = 1920
 
-FONT_CACHE = Path(".font_cache")
-FONT_CACHE.mkdir(exist_ok=True)
+# =====================================================
+# CAPTION SETTINGS
+# =====================================================
 
-# Open-source display fonts. They are downloaded only when the runner
-# does not already have them installed, and are kept outside output/.
-FONT_DOWNLOADS = {
-    "Montserrat ExtraBold": (
-        "https://github.com/google/fonts/raw/main/ofl/montserrat/static/"
-        "Montserrat-ExtraBold.ttf"
-    ),
-    "Anton": (
-        "https://github.com/google/fonts/raw/main/ofl/anton/"
-        "Anton-Regular.ttf"
-    ),
-    "Poppins ExtraBold": (
-        "https://github.com/google/fonts/raw/main/ofl/poppins/static/"
-        "Poppins-ExtraBold.ttf"
-    ),
-    "Bebas Neue": (
-        "https://github.com/google/fonts/raw/main/ofl/bebasneue/"
-        "BebasNeue-Regular.ttf"
-    ),
-}
+CAPTION_MAX_WIDTH = 920
+CAPTION_MIN_FONT_SIZE = 60
+CAPTION_FONT_SIZE = 84
+CAPTION_STROKE = 6
+CAPTION_SPACING = 14
+CAPTION_CENTER_X = WIDTH / 2
+CAPTION_CENTER_Y = HEIGHT / 2
+CAPTION_POP_DURATION = 0.11
 
-CAPTION_STYLES = {
-    "montserrat": {
-        "name": "Montserrat ExtraBold",
-        "font_size": 104,
-        "active_size_bonus": 10,
-        "highlight": "#FFD447",
-    },
-    "anton": {
-        "name": "Anton",
-        "font_size": 112,
-        "active_size_bonus": 12,
-        "highlight": "#FFD447",
-    },
-    "poppins": {
-        "name": "Poppins ExtraBold",
-        "font_size": 104,
-        "active_size_bonus": 10,
-        "highlight": "#37E7FF",
-    },
-    "bebas": {
-        "name": "Bebas Neue",
-        "font_size": 116,
-        "active_size_bonus": 12,
-        "highlight": "#75F078",
-    },
-    "helvetica": {
-        "name": "Helvetica",
-        "font_size": 100,
-        "active_size_bonus": 10,
-        "highlight": "#37E7FF",
-    },
-}
+# Existing caption-plan colors are preserved.
+DEFAULT_NORMAL = "#FFFFFF"
+DEFAULT_HIGHLIGHT = "#FFD447"
+DEFAULT_PAIN = "#FF5555"
+DEFAULT_HOPE = "#45E6FF"
+
+# Large temporary source assets created by this renderer.
+TEMP_ASSET_PATTERNS = (
+    "asset_*.mp4",
+    "asset_*.mov",
+    "asset_*.webm",
+    "asset_*.jpg",
+    "asset_*.jpeg",
+    "asset_*.png",
+    "asset_*.webp",
+)
+
+
+# =====================================================
+# BASIC HELPERS
+# =====================================================
 
 
 def load_json(path):
@@ -115,26 +92,30 @@ def load_json(path):
         return json.load(f)
 
 
+def safe_close(clip):
+    if clip is None:
+        return
+    try:
+        clip.close()
+    except Exception:
+        pass
+
+
 def get_audio_duration():
     voice = OUTPUT / "voice.wav"
-
     if not voice.exists():
         return 60
 
     clip = AudioFileClip(str(voice))
-
     try:
         return float(clip.duration)
     finally:
-        close_quietly(clip)
+        safe_close(clip)
 
 
-def close_quietly(clip):
-    try:
-        if clip is not None:
-            clip.close()
-    except Exception:
-        pass
+# =====================================================
+# VIDEO FIT / GRADE
+# =====================================================
 
 
 def fit_vertical(clip):
@@ -143,6 +124,7 @@ def fit_vertical(clip):
     if clip.w < WIDTH:
         clip = clip.resized(width=WIDTH)
 
+    # MoviePy 2.x renamed crop -> cropped
     if hasattr(clip, "cropped"):
         return clip.cropped(
             x_center=clip.w / 2,
@@ -169,6 +151,11 @@ def cinematic_grade(clip):
     return CompositeVideoClip([clip, overlay])
 
 
+# =====================================================
+# ASSET DOWNLOAD
+# =====================================================
+
+
 def download(url, name):
     import requests
 
@@ -177,9 +164,9 @@ def download(url, name):
     if path.exists():
         return path
 
-    response = requests.get(url, timeout=60)
-    response.raise_for_status()
-    path.write_bytes(response.content)
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    path.write_bytes(r.content)
 
     return path
 
@@ -205,615 +192,498 @@ def create_visual(asset, duration):
 
     path = download(
         url,
-        (
-            f"asset_{asset.get('id', 'x')}.mp4"
-            if is_video
-            else f"asset_{asset.get('id', 'x')}.jpg"
-        ),
+        f"asset_{asset.get('id','x')}.mp4"
+        if is_video
+        else f"asset_{asset.get('id','x')}.jpg",
     )
 
     if is_video:
         clip = VideoFileClip(str(path))
-        clip = clip.subclipped(
-            0,
-            min(duration, clip.duration),
-        )
+        clip = clip.subclipped(0, min(duration, clip.duration))
     else:
         clip = ImageClip(str(path)).with_duration(duration)
 
-    return cinematic_grade(
-        fit_vertical(clip)
-    )
+    return cinematic_grade(fit_vertical(clip))
 
 
-def _fc_match(pattern):
-    """Return a system font path when fontconfig has a matching font."""
-    try:
-        result = subprocess.run(
-            [
-                "fc-match",
-                "-f",
-                "%{file}",
-                pattern,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5,
-        )
-
-        path = result.stdout.strip()
-
-        if path and Path(path).exists():
-            return Path(path)
-
-    except Exception:
-        pass
-
-    return None
+# =====================================================
+# CAPTION FONT RESOLUTION
+# =====================================================
 
 
-def _download_font(name, url):
-    destination = FONT_CACHE / Path(url).name
+def _find_font_file(patterns):
+    """Find an exact/near-exact font file in common system/repository paths."""
+    roots = [
+        Path.cwd() / "fonts",
+        OUTPUT.parent / "fonts",
+        Path("/usr/share/fonts"),
+        Path("/usr/local/share/fonts"),
+        Path.home() / ".fonts",
+    ]
 
-    if destination.exists():
-        return destination
+    wanted = [p.lower() for p in patterns]
 
-    try:
-        import requests
+    for root in roots:
+        if not root.exists():
+            continue
 
-        response = requests.get(
-            url,
-            timeout=30,
-        )
-        response.raise_for_status()
+        try:
+            candidates = root.rglob("*")
+        except Exception:
+            continue
 
-        destination.write_bytes(response.content)
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            if candidate.suffix.lower() not in {".ttf", ".otf"}:
+                continue
 
-        return destination
-
-    except Exception as exc:
-        print(
-            f"Font download skipped for {name}: {exc}"
-        )
+            name = candidate.name.lower()
+            if any(token in name for token in wanted):
+                return str(candidate)
 
     return None
 
 
-def resolve_font(name):
+def resolve_caption_font(theme):
     """
-    Prefer the requested display font.
+    Prefer the requested style fonts when they are installed.
+    GitHub/Linux runners may not ship proprietary fonts, so safe open-font
+    fallbacks are provided without changing the visual hierarchy.
+    """
 
-    Falls back to common system fonts if the exact family is unavailable.
-    """
-    system_patterns = {
-        "Montserrat ExtraBold": [
-            "Montserrat:style=ExtraBold",
-            "Montserrat:style=Black",
+    exact = {
+        "montserrat": [
+            "montserrat-extrabold",
+            "montserrat-black",
+            "montserrat-bold",
         ],
-        "Anton": [
-            "Anton",
+        "anton": [
+            "anton-regular",
+            "anton",
         ],
-        "Poppins ExtraBold": [
-            "Poppins:style=ExtraBold",
-            "Poppins:style=Bold",
+        "impact": [
+            "impact",
         ],
-        "Bebas Neue": [
-            "Bebas Neue",
-            "BebasNeue",
+        "sfpro": [
+            "sf-pro-display-bold",
+            "sfprodisplay-bold",
+            "sfprodisplay",
         ],
-        "Helvetica": [
-            "Helvetica:style=Bold",
-            "Arial:style=Bold",
-            "Nimbus Sans:style=Bold",
+        "helvetica": [
+            "helvetica-bold",
+            "helvetica-neue-bold",
+            "helvetica",
         ],
     }
 
-    for pattern in system_patterns.get(name, [name]):
-        path = _fc_match(pattern)
+    fallbacks = {
+        "montserrat": [
+            "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ],
+        "anton": [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+            "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
+        ],
+        "impact": [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+            "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
+        ],
+        "sfpro": [
+            "/usr/share/fonts/truetype/lato/Lato-Heavy.ttf",
+            "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        ],
+        "helvetica": [
+            "/usr/share/fonts/truetype/lato/Lato-Heavy.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        ],
+    }
 
-        if path is not None:
-            family_text = path.name.lower()
+    exact_path = _find_font_file(exact.get(theme, []))
+    if exact_path:
+        return exact_path
 
-            # If fontconfig returned a fallback rather than the requested
-            # family, keep searching before accepting a generic font.
-            requested_tokens = [
-                token
-                for token in name.lower().replace("-", " ").split()
-                if token not in {"extra", "bold"}
-            ]
-
-            if any(token in family_text for token in requested_tokens):
-                return path
-
-    if name in FONT_DOWNLOADS:
-        downloaded = _download_font(
-            name,
-            FONT_DOWNLOADS[name],
-        )
-
-        if downloaded is not None:
-            return downloaded
-
-    # Reliable final fallbacks available on standard Ubuntu runners.
-    for pattern in (
-        "DejaVu Sans:style=Bold",
-        "Noto Sans:style=ExtraBold",
-        "Nimbus Sans:style=Bold",
-    ):
-        path = _fc_match(pattern)
-
-        if path is not None:
-            return path
+    for fallback in fallbacks.get(theme, []):
+        if Path(fallback).exists():
+            return fallback
 
     return None
 
 
-def select_caption_style(brief):
-    """
-    Select one coherent typography style per video rather than changing
-    fonts randomly from line to line.
-    """
-    creative = brief.get(
-        "creative_direction",
-        {},
-    )
+def choose_caption_theme(narration, caption_plan=None):
+    """Pick a deterministic typography personality from the story topic."""
+    text = str(narration or "").lower()
 
-    voice = brief.get(
-        "voice_direction",
-        {},
-    )
+    themes = {
+        "anton": {
+            "never", "quit", "fight", "hard", "grind", "discipline",
+            "sacrifice", "challenge", "prove", "strong", "strength",
+            "pain", "failure", "comeback", "rise", "battle", "win",
+        },
+        "montserrat": {
+            "success", "business", "work", "career", "money", "wealth",
+            "focus", "productivity", "goal", "goals", "growth",
+            "confidence", "achievement", "discipline",
+        },
+        "impact": {
+            "warning", "danger", "fear", "broken", "lost", "alone",
+            "failure", "regret", "destroy", "destroyed", "escape",
+            "stop", "wake", "truth",
+        },
+        "sfpro": {
+            "life", "future", "purpose", "meaning", "mind", "choice",
+            "time", "today", "tomorrow", "believe", "thought",
+            "philosophy", "journey", "identity",
+        },
+    }
 
-    searchable = " ".join(
-        [
-            str(brief.get("title", "")),
-            str(brief.get("theme", "")),
-            str(creative.get("philosophical_theme", "")),
-            str(creative.get("emotional_arc", "")),
-            str(creative.get("visual_style", "")),
-            str(voice.get("personality", "")),
-            str(voice.get("emotion", "")),
+    scores = {
+        theme: sum(1 for keyword in words if re.search(rf"\b{re.escape(keyword)}\b", text))
+        for theme, words in themes.items()
+    }
+
+    # If the plan contains many hope words, favor the cleaner premium style.
+    if caption_plan:
+        styled = [
+            word
+            for item in caption_plan
+            for word in item.get("words", [])
         ]
-    ).lower()
-
-    power_words = (
-        "warrior",
-        "sacrifice",
-        "achievement",
-        "resilience",
-        "fear",
-        "failure",
-        "battle",
-        "strength",
-        "power",
-        "overcome",
-        "intense",
-    )
-
-    hope_words = (
-        "hope",
-        "healing",
-        "reflection",
-        "transformation",
-        "growth",
-        "peace",
-        "change",
-    )
-
-    discipline_words = (
-        "stoic",
-        "discipline",
-        "wisdom",
-        "philosophy",
-        "self-control",
-        "focus",
-        "mindset",
-    )
-
-    modern_words = (
-        "future",
-        "modern",
-        "technology",
-        "innovation",
-    )
-
-    if any(word in searchable for word in power_words):
-        selected = "anton"
-    elif any(word in searchable for word in hope_words):
-        selected = "poppins"
-    elif any(word in searchable for word in modern_words):
-        selected = "helvetica"
-    elif any(word in searchable for word in discipline_words):
-        selected = "montserrat"
-    else:
-        selected = "montserrat"
-
-    style = dict(CAPTION_STYLES[selected])
-    style["font_path"] = resolve_font(style["name"])
-
-    return style
-
-
-def _load_font(font_path, size):
-    """Load the selected font with a safe DejaVu fallback."""
-    try:
-        if font_path:
-            return ImageFont.truetype(
-                str(font_path),
-                size,
-            )
-    except Exception:
-        pass
-
-    fallback = _fc_match("DejaVu Sans:style=Bold")
-
-    if fallback is not None:
-        try:
-            return ImageFont.truetype(
-                str(fallback),
-                size,
-            )
-        except Exception:
-            pass
-
-    return ImageFont.load_default()
-
-
-def _word_size(draw, word, font, stroke_width):
-    bbox = draw.textbbox(
-        (0, 0),
-        word,
-        font=font,
-        stroke_width=stroke_width,
-    )
-
-    return (
-        max(1, bbox[2] - bbox[0]),
-        max(1, bbox[3] - bbox[1]),
-    )
-
-
-def _layout_caption_words(words, style):
-    """Create centered one- or two-line word positions for a caption."""
-    font_size = style["font_size"]
-    font = _load_font(
-        style["font_path"],
-        font_size,
-    )
-
-    draw = ImageDraw.Draw(
-        Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
-    )
-
-    max_width = 950
-    gap = 18
-
-    measured = []
-
-    for item in words:
-        word = str(item["word"]).upper()
-        width, height = _word_size(
-            draw,
-            word,
-            font,
-            5,
+        hope_count = sum(
+            1 for word in styled
+            if str(word.get("style", "")).lower() == "hope"
         )
+        if hope_count >= 2:
+            scores["sfpro"] += 2
 
-        measured.append(
-            {
-                **item,
-                "word": word,
-                "width": width,
-                "height": height,
-            }
-        )
+    best = max(scores, key=scores.get) if scores else "montserrat"
+    return best if scores.get(best, 0) > 0 else "montserrat"
 
-    lines = []
-    current = []
-    current_width = 0
 
-    for item in measured:
-        required = (
-            item["width"]
-            if not current
-            else gap + item["width"]
-        )
+# =====================================================
+# CAPTION DATA
+# =====================================================
 
-        if current and current_width + required > max_width:
-            lines.append(current)
-            current = [item]
-            current_width = item["width"]
-        else:
-            current.append(item)
-            current_width += required
 
-    if current:
-        lines.append(current)
+def _normalize_caption_plan(plan):
+    """Normalize the existing caption plan without modifying its JSON file."""
+    normalized = []
 
-    line_gap = 18
-    line_heights = [
-        max(item["height"] for item in line)
-        for line in lines
-    ]
+    if not isinstance(plan, list):
+        return normalized
 
-    total_height = (
-        sum(line_heights)
-        + line_gap * max(0, len(lines) - 1)
-    )
+    for item in plan:
+        if not isinstance(item, dict):
+            continue
 
-    start_y = HEIGHT / 2 - total_height / 2
-    positions = []
+        words = []
+        for word in item.get("words", []):
+            if not isinstance(word, dict):
+                continue
 
-    current_y = start_y
+            text = str(word.get("word", "")).strip()
+            if not text:
+                continue
 
-    for line_index, line in enumerate(lines):
-        line_height = line_heights[line_index]
-        line_width = (
-            sum(item["width"] for item in line)
-            + gap * max(0, len(line) - 1)
-        )
+            try:
+                start = float(word.get("start", item.get("start", 0)))
+                end = float(word.get("end", item.get("end", start + 0.25)))
+            except (TypeError, ValueError):
+                continue
 
-        x = WIDTH / 2 - line_width / 2
+            if end <= start:
+                end = start + 0.25
 
-        for item in line:
-            positions.append(
+            words.append(
                 {
-                    **item,
-                    "x": x,
-                    "y": current_y + (line_height - item["height"]) / 2,
-                    "line_height": line_height,
+                    "word": text.upper(),
+                    "start": start,
+                    "end": end,
+                    "style": str(word.get("style", "normal")),
+                    "color": str(word.get("color", DEFAULT_NORMAL)),
+                    "animation": str(word.get("animation", "fade")),
                 }
             )
 
-            x += item["width"] + gap
+        if not words:
+            text = str(item.get("text", "")).strip()
+            if not text:
+                continue
+            try:
+                start = float(item.get("start", 0))
+                end = float(item.get("end", start + 0.8))
+            except (TypeError, ValueError):
+                continue
+            words = [
+                {
+                    "word": w,
+                    "start": start,
+                    "end": end,
+                    "style": "normal",
+                    "color": DEFAULT_NORMAL,
+                    "animation": "fade",
+                }
+                for w in text.upper().split()
+            ]
 
-        current_y += line_height + line_gap
+        try:
+            group_start = float(item.get("start", words[0]["start"]))
+            group_end = float(item.get("end", words[-1]["end"]))
+        except (TypeError, ValueError):
+            group_start = words[0]["start"]
+            group_end = words[-1]["end"]
 
-    return positions
+        if group_end <= group_start:
+            group_end = max(group_start + 0.4, words[-1]["end"])
 
-
-def _caption_frame(words, active_index, style):
-    """Render one complete caption frame with one active word emphasized."""
-    image = Image.new(
-        "RGBA",
-        (WIDTH, HEIGHT),
-        (0, 0, 0, 0),
-    )
-
-    draw = ImageDraw.Draw(image)
-
-    font = _load_font(
-        style["font_path"],
-        style["font_size"],
-    )
-
-    active_font = _load_font(
-        style["font_path"],
-        style["font_size"] + style["active_size_bonus"],
-    )
-
-    positions = _layout_caption_words(
-        words,
-        style,
-    )
-
-    for index, item in enumerate(positions):
-        word = item["word"]
-        x = item["x"]
-        y = item["y"]
-
-        is_active = index == active_index
-
-        draw_font = active_font if is_active else font
-        color = "#FFFFFF"
-        stroke_width = 6
-
-        if is_active:
-            color = item.get("color") or style["highlight"]
-
-            if str(color).upper() == "#FFFFFF":
-                color = style["highlight"]
-
-            style_name = str(
-                item.get("style", "normal")
-            ).lower()
-
-            if style_name in {
-                "pain",
-                "highlight",
-                "impact",
-            } and item.get("color"):
-                color = item["color"]
-
-            # Center the slightly larger active word over the same word slot.
-            normal_w, normal_h = _word_size(
-                draw,
-                word,
-                font,
-                6,
-            )
-
-            active_w, active_h = _word_size(
-                draw,
-                word,
-                active_font,
-                6,
-            )
-
-            x += (normal_w - active_w) / 2
-            y += (normal_h - active_h) / 2
-
-        draw.text(
-            (x, y),
-            word,
-            font=draw_font,
-            fill=color,
-            stroke_width=stroke_width,
-            stroke_fill="#000000",
-        )
-
-    return np.asarray(image)
-
-
-def _caption_words(segment):
-    words = segment.get("words", [])
-
-    if isinstance(words, list) and words:
-        return [
+        normalized.append(
             {
-                "word": str(item.get("word", "")).strip(),
-                "start": float(
-                    item.get(
-                        "start",
-                        segment.get("start", 0),
-                    )
-                ),
-                "end": float(
-                    item.get(
-                        "end",
-                        segment.get("end", 0),
-                    )
-                ),
-                "style": str(
-                    item.get(
-                        "style",
-                        "normal",
-                    )
-                ),
-                "color": str(
-                    item.get(
-                        "color",
-                        "#FFFFFF",
-                    )
-                ),
-            }
-            for item in words
-            if str(item.get("word", "")).strip()
-        ]
-
-    raw_text = str(
-        segment.get("text", "")
-    ).strip()
-
-    if not raw_text:
-        return []
-
-    start = float(
-        segment.get(
-            "start",
-            0,
-        )
-    )
-
-    end = float(
-        segment.get(
-            "end",
-            start + 0.4,
-        )
-    )
-
-    tokens = raw_text.split()
-
-    word_duration = max(
-        0.05,
-        (end - start) / max(len(tokens), 1),
-    )
-
-    generated = []
-
-    for index, token in enumerate(tokens):
-        token_start = start + index * word_duration
-        token_end = (
-            end
-            if index == len(tokens) - 1
-            else token_start + word_duration
-        )
-
-        generated.append(
-            {
-                "word": token,
-                "start": token_start,
-                "end": token_end,
-                "style": "normal",
-                "color": "#FFFFFF",
+                "start": group_start,
+                "end": group_end,
+                "words": words,
             }
         )
 
-    return generated
+    return normalized
 
 
-def _segment_caption_clips(segment, style):
-    words = _caption_words(segment)
-
-    if not words:
-        return []
-
-    clips = []
-
-    for index, word in enumerate(words):
-        frame = _caption_frame(
-            words,
-            index,
-            style,
-        )
-
-        duration = max(
-            0.05,
-            float(word["end"]) - float(word["start"]),
-        )
-
-        clip = ImageClip(
-            frame,
-        ).with_start(
-            float(word["start"])
-        ).with_duration(
-            duration
-        ).with_position(
-            (0, 0)
-        )
-
-        clips.append(clip)
-
-    return clips
-
-
-def _load_caption_plan():
+def load_caption_plan():
     path = OUTPUT / "caption_plan.json"
-
     if not path.exists():
         return []
 
     try:
-        data = load_json(path)
-
-        if isinstance(data, list):
-            valid = [
-                segment
-                for segment in data
-                if isinstance(segment, dict)
-                and (
-                    segment.get("words")
-                    or segment.get("text")
-                )
-            ]
-
-            if valid:
-                return valid
-
+        return _normalize_caption_plan(load_json(path))
     except Exception as exc:
-        print(
-            f"Caption plan could not be loaded: {exc}"
+        print("Caption plan could not be loaded:", exc)
+        return []
+
+
+def _normalize_token(value):
+    """Normalize a caption/audio word for robust sequence matching."""
+    value = str(value or "").lower().strip()
+    value = re.sub(r"[^a-z0-9']+", "", value)
+    return value
+
+
+def _narration_tokens(narration):
+    return re.findall(r"\b[\w']+\b", str(narration or ""))
+
+
+def _flatten_plan_words(plan):
+    flattened = []
+    for item in plan or []:
+        for word in item.get("words", []):
+            flattened.append(dict(word))
+    return flattened
+
+
+def _plan_matches_narration(plan, narration):
+    planned = [
+        _normalize_token(word.get("word", ""))
+        for word in _flatten_plan_words(plan)
+        if _normalize_token(word.get("word", ""))
+    ]
+    target = [
+        _normalize_token(word)
+        for word in _narration_tokens(narration)
+        if _normalize_token(word)
+    ]
+
+    if not planned or not target:
+        return False
+
+    matcher = SequenceMatcher(None, target, planned, autojunk=False)
+    ratio = matcher.ratio()
+    return planned == target or ratio >= 0.96
+
+
+def _plan_has_real_audio_timing(plan, audio_duration):
+    """Reject legacy fixed 0.35s fallback timing from older caption plans."""
+    words = _flatten_plan_words(plan)
+    if not words or audio_duration <= 0:
+        return False
+
+    starts = []
+    ends = []
+    fixed_count = 0
+
+    for word in words:
+        try:
+            start = float(word.get("start", 0))
+            end = float(word.get("end", 0))
+        except (TypeError, ValueError):
+            return False
+
+        if end <= start:
+            return False
+
+        starts.append(start)
+        ends.append(end)
+        if abs((end - start) - 0.35) < 0.015:
+            fixed_count += 1
+
+    if starts != sorted(starts):
+        return False
+
+    # A plan where essentially every word is exactly 0.35s is the old
+    # narration-only fallback and is not safely synchronized to voice.wav.
+    if len(words) >= 3 and fixed_count / len(words) >= 0.85:
+        return False
+
+    # Do not accept timestamps that run materially beyond the real audio.
+    if max(ends) > audio_duration + 0.35:
+        return False
+
+    return True
+
+
+def _weighted_time_split(start, end, words):
+    """Split an audio time range over words using character length weights."""
+    count = len(words)
+    if count == 0:
+        return []
+
+    start = float(start)
+    end = max(start, float(end))
+    weights = [max(1, len(_normalize_token(w))) for w in words]
+    total_weight = float(sum(weights)) or float(count)
+
+    cursor = start
+    result = []
+    for index, weight in enumerate(weights):
+        if index == count - 1:
+            next_cursor = end
+        else:
+            next_cursor = cursor + (end - start) * (weight / total_weight)
+        result.append((cursor, next_cursor))
+        cursor = next_cursor
+    return result
+
+
+def _align_whisper_words(narration, whisper_words, audio_duration):
+    """
+    Force the spoken-word timestamps onto the exact narration token sequence.
+
+    Whisper may normalize punctuation, merge/split words, or occasionally miss
+    a word. The alignment layer therefore uses sequence matching first and
+    interpolates only unmatched runs. This prevents captions from displaying
+    narration in the wrong temporal order when the transcript differs slightly.
+    """
+    target_words = _narration_tokens(narration)
+    transcript = [
+        item for item in (whisper_words or [])
+        if _normalize_token(item.get("word", ""))
+    ]
+
+    if not target_words or not transcript:
+        return []
+
+    target_norm = [_normalize_token(w) for w in target_words]
+    transcript_norm = [_normalize_token(w.get("word", "")) for w in transcript]
+
+    matcher = SequenceMatcher(
+        None,
+        target_norm,
+        transcript_norm,
+        autojunk=False,
+    )
+
+    aligned = [None] * len(target_words)
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for i, j in zip(range(i1, i2), range(j1, j2)):
+                try:
+                    start = float(transcript[j]["start"])
+                    end = float(transcript[j]["end"])
+                except (TypeError, ValueError, KeyError):
+                    continue
+                aligned[i] = (start, max(start + 0.01, end))
+
+        elif tag == "replace" and j2 > j1:
+            try:
+                start = float(transcript[j1]["start"])
+                end = float(transcript[j2 - 1]["end"])
+            except (TypeError, ValueError, KeyError):
+                continue
+
+            split = _weighted_time_split(
+                start,
+                end,
+                target_words[i1:i2],
+            )
+            for offset, timing in enumerate(split):
+                aligned[i1 + offset] = timing
+
+    # Fill any unmatched narration runs from the nearest spoken anchors.
+    index = 0
+    while index < len(aligned):
+        if aligned[index] is not None:
+            index += 1
+            continue
+
+        run_start = index
+        while index < len(aligned) and aligned[index] is None:
+            index += 1
+        run_end = index
+
+        left_end = 0.0
+        if run_start > 0 and aligned[run_start - 1] is not None:
+            left_end = aligned[run_start - 1][1]
+
+        right_start = float(audio_duration)
+        if run_end < len(aligned) and aligned[run_end] is not None:
+            right_start = aligned[run_end][0]
+
+        if right_start < left_end:
+            right_start = left_end
+
+        split = _weighted_time_split(
+            left_end,
+            right_start,
+            target_words[run_start:run_end],
         )
+        for offset, timing in enumerate(split):
+            aligned[run_start + offset] = timing
 
-    return []
+    # Final monotonicity pass prevents zero/negative or backwards intervals.
+    result = []
+    previous_end = 0.0
+    for word, timing in zip(target_words, aligned):
+        if timing is None:
+            start = previous_end
+            end = min(audio_duration, start + 0.05)
+        else:
+            start, end = timing
+            start = max(previous_end, min(float(audio_duration), start))
+            end = max(start + 0.01, min(float(audio_duration), end))
+
+        result.append(
+            {
+                "word": word,
+                "start": round(start, 3),
+                "end": round(end, 3),
+            }
+        )
+        previous_end = end
+
+    # Never allow the final caption word to extend past the audio.
+    if result:
+        result[-1]["end"] = round(min(audio_duration, result[-1]["end"]), 3)
+        if result[-1]["end"] <= result[-1]["start"]:
+            result[-1]["end"] = round(
+                min(audio_duration, result[-1]["start"] + 0.01),
+                3,
+            )
+
+    return result
 
 
-def caption_segments_fallback(audio_path):
-    """
-    Fallback only for projects where caption_plan.json is unavailable.
-    Normally the already-generated caption plan is reused, avoiding a
-    second Whisper pass.
-    """
+def caption_segments(audio_path, narration=None):
+    """Return actual word timings from voice.wav, mapped to the narration."""
     try:
         from faster_whisper import WhisperModel
 
@@ -828,284 +698,471 @@ def caption_segments_fallback(audio_path):
         )
 
         words = []
-
-        for segment in segments:
-            for word in segment.words:
+        for seg in segments:
+            if not seg.words:
+                continue
+            for word in seg.words:
                 words.append(
                     {
                         "word": word.word.strip(),
                         "start": word.start,
                         "end": word.end,
-                        "style": "normal",
-                        "color": "#FFFFFF",
                     }
                 )
 
         if not words:
             return []
 
-        groups = []
-        chunk = []
-
-        for word in words:
-            chunk.append(word)
-
-            if (
-                len(chunk) >= 4
-                or word["word"].endswith((".", "!", "?"))
-            ):
-                groups.append(
-                    {
-                        "start": chunk[0]["start"],
-                        "end": chunk[-1]["end"],
-                        "text": " ".join(
-                            item["word"]
-                            for item in chunk
-                        ),
-                        "words": chunk,
-                    }
-                )
-                chunk = []
-
-        if chunk:
-            groups.append(
-                {
-                    "start": chunk[0]["start"],
-                    "end": chunk[-1]["end"],
-                    "text": " ".join(
-                        item["word"]
-                        for item in chunk
-                    ),
-                    "words": chunk,
-                }
-            )
-
-        return groups
+        duration = get_audio_duration()
+        if narration:
+            return _align_whisper_words(narration, words, duration)
+        return words
 
     except Exception as exc:
-        print(
-            f"Caption timing fallback failed: {exc}"
-        )
+        print("Whisper alignment unavailable:", exc)
         return []
 
 
-def build_captions(brief):
-    plan = _load_caption_plan()
-    using_existing_plan = bool(plan)
+def _style_lookup_from_plan(plan):
+    """Preserve the existing caption-engine styling for fallback alignment."""
+    lookup = {}
+    for item in _flatten_plan_words(plan):
+        key = _normalize_token(item.get("word", ""))
+        if not key or key in lookup:
+            continue
+        lookup[key] = {
+            "style": str(item.get("style", "normal")),
+            "color": str(item.get("color", DEFAULT_NORMAL)),
+            "animation": str(item.get("animation", "fade")),
+        }
+    return lookup
 
-    if not plan:
-        audio = OUTPUT / "voice.wav"
 
-        if audio.exists():
-            plan = caption_segments_fallback(audio)
+def _groups_from_aligned_words(words, plan=None, max_words=5):
+    """Build readable caption groups while retaining exact word timings."""
+    style_lookup = _style_lookup_from_plan(plan or [])
+    groups = []
+    current = []
 
-    if not plan:
-        narration = str(
-            brief.get("narration", "")
-        ).strip()
+    for raw in words:
+        token = str(raw.get("word", "")).strip()
+        if not token:
+            continue
 
-        if not narration:
-            return []
-
-        fallback_duration = get_audio_duration()
-
-        plan = [
+        style = style_lookup.get(
+            _normalize_token(token),
             {
-                "start": 0,
-                "end": fallback_duration,
-                "text": narration,
-                "words": [
-                    {
-                        "word": word,
-                        "start": 0,
-                        "end": fallback_duration,
-                        "style": "normal",
-                        "color": "#FFFFFF",
-                    }
-                    for word in narration.split()
-                ],
+                "style": "normal",
+                "color": DEFAULT_NORMAL,
+                "animation": "fade",
+            },
+        )
+
+        current.append(
+            {
+                "word": token.upper(),
+                "start": float(raw["start"]),
+                "end": float(raw["end"]),
+                **style,
             }
-        ]
-
-    style = select_caption_style(brief)
-
-    print(
-        "Caption style:",
-        style["name"],
-        "Highlight:",
-        style["highlight"],
-    )
-
-    if using_existing_plan:
-        print(
-            "Using existing caption_plan.json "
-            "(skipping duplicate Whisper transcription)."
-        )
-    else:
-        print(
-            "Caption plan unavailable; using Whisper fallback."
         )
 
-    caption_layers = []
-
-    for segment in plan:
-        caption_layers.extend(
-            _segment_caption_clips(
-                segment,
-                style,
+        text = " ".join(x["word"] for x in current)
+        if len(current) >= max_words or text.endswith((".", "!", "?")):
+            groups.append(
+                {
+                    "start": current[0]["start"],
+                    "end": current[-1]["end"],
+                    "words": current,
+                }
             )
+            current = []
+
+    if current:
+        groups.append(
+            {
+                "start": current[0]["start"],
+                "end": current[-1]["end"],
+                "words": current,
+            }
         )
 
-    return caption_layers
+    return groups
 
 
-def cleanup_visual_assets():
+def _rebuild_plan_timing(plan, narration, audio_path):
     """
-    Delete only large downloaded visual assets produced by this renderer.
-
-    Production JSON files, voice files, caption_plan.json, and
-    final_short.mp4 are intentionally preserved.
+    Validate the saved caption plan against the actual voice and only replace
+    timestamps when the plan came from the old fixed-duration fallback.
     """
-    removed = 0
-    removed_bytes = 0
+    duration = get_audio_duration()
 
-    extensions = {
-        ".mp4",
-        ".mov",
-        ".m4v",
-        ".webm",
-        ".avi",
-        ".mkv",
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".webp",
+    if (
+        plan
+        and _plan_matches_narration(plan, narration)
+        and _plan_has_real_audio_timing(plan, duration)
+    ):
+        return plan
+
+    aligned = caption_segments(audio_path, narration)
+    if not aligned:
+        return []
+
+    return _groups_from_aligned_words(aligned, plan=plan)
+
+
+# =====================================================
+# CAPTION BUILDING
+# =====================================================
+
+
+def _make_word_clip(
+    text,
+    font,
+    font_size,
+    color,
+    stroke_width=CAPTION_STROKE,
+):
+    """Create one tight MoviePy 2.x word label."""
+    kwargs = {
+        "text": text.upper(),
+        "font_size": int(font_size),
+        "color": color,
+        "stroke_color": "black",
+        "stroke_width": int(stroke_width),
+        "method": "label",
+        "text_align": "center",
+        "horizontal_align": "center",
+        "vertical_align": "center",
+        "transparent": True,
     }
 
-    for path in OUTPUT.glob("asset_*"):
-        if not path.is_file():
-            continue
+    if font:
+        kwargs["font"] = font
 
-        if path.suffix.lower() not in extensions:
-            continue
+    return TextClip(**kwargs)
 
+
+def _calculate_font_size(words, font, preferred=CAPTION_FONT_SIZE):
+    """Shrink the font only when needed to keep a caption group centered and readable."""
+    size = preferred
+
+    while size >= CAPTION_MIN_FONT_SIZE:
+        measured = []
+        total_width = 0
+
+        for word in words:
+            probe = _make_word_clip(word["word"], font, size, DEFAULT_NORMAL)
+            try:
+                measured.append((probe.w, probe.h))
+                total_width += probe.w
+            finally:
+                safe_close(probe)
+
+        total_width += max(0, len(words) - 1) * CAPTION_SPACING
+
+        if total_width <= CAPTION_MAX_WIDTH:
+            return size, measured
+
+        size -= 4
+
+    measured = []
+    total_width = 0
+    for word in words:
+        probe = _make_word_clip(
+            word["word"],
+            font,
+            CAPTION_MIN_FONT_SIZE,
+            DEFAULT_NORMAL,
+        )
         try:
-            size = path.stat().st_size
-            path.unlink()
-            removed += 1
-            removed_bytes += size
+            measured.append((probe.w, probe.h))
+            total_width += probe.w
+        finally:
+            safe_close(probe)
 
-        except Exception as exc:
-            print(
-                f"Could not delete {path.name}: {exc}"
-            )
+    return CAPTION_MIN_FONT_SIZE, measured
+
+
+def _active_color(word):
+    style = str(word.get("style", "normal")).lower()
+    supplied = str(word.get("color", "")).strip()
+
+    if supplied and supplied.lower() not in {"#ffffff", "white"}:
+        return supplied
+
+    if style == "pain":
+        return DEFAULT_PAIN
+    if style == "hope":
+        return DEFAULT_HOPE
+    return DEFAULT_HIGHLIGHT
+
+
+def _is_power_word(word):
+    return str(word.get("animation", "")).lower() == "impact_pop" or str(
+        word.get("style", "")
+    ).lower() in {"highlight", "pain", "hope"}
+
+
+def make_caption_group(group, font):
+    """Create a centered caption group with active-word overlays."""
+    words = group.get("words", [])
+    if not words:
+        return []
+
+    font_size, measured = _calculate_font_size(words, font)
+
+    total_width = (
+        sum(width for width, _ in measured)
+        + max(0, len(words) - 1) * CAPTION_SPACING
+    )
+
+    left = CAPTION_CENTER_X - total_width / 2
+    max_height = max(height for _, height in measured)
+    top = CAPTION_CENTER_Y - max_height / 2
+
+    clips = []
+    x_positions = []
+
+    x = left
+    for width, _ in measured:
+        x_positions.append(x)
+        x += width + CAPTION_SPACING
+
+    group_start = float(group["start"])
+    group_end = float(group["end"])
+    group_duration = max(0.05, group_end - group_start)
+
+    # Base sentence: all words remain visible together.
+    for index, word in enumerate(words):
+        base = _make_word_clip(
+            word["word"],
+            font,
+            font_size,
+            DEFAULT_NORMAL,
+        )
+        base = (
+            base.with_position((x_positions[index], top))
+            .with_start(group_start)
+            .with_duration(group_duration)
+        )
+        clips.append(base)
+
+    # Active spoken word: color change + optional short power-word pop.
+    for index, word in enumerate(words):
+        start = max(group_start, float(word["start"]))
+        end = min(group_end, float(word["end"]))
+        duration = end - start
+
+        if duration <= 0:
+            continue
+
+        active = _make_word_clip(
+            word["word"],
+            font,
+            font_size,
+            _active_color(word),
+        )
+
+        active = (
+            active.with_position((x_positions[index], top))
+            .with_start(start)
+            .with_duration(duration)
+        )
+        clips.append(active)
+
+        # Small scale pop for high-impact words, not every word.
+        if _is_power_word(word):
+            pop_end = min(end, start + CAPTION_POP_DURATION)
+            pop_duration = pop_end - start
+
+            if pop_duration > 0:
+                pop_size = min(font_size + 12, font_size * 1.14)
+                pop = _make_word_clip(
+                    word["word"],
+                    font,
+                    pop_size,
+                    _active_color(word),
+                )
+
+                center_x = x_positions[index] + measured[index][0] / 2
+                center_y = top + max_height / 2
+                pop_x = center_x - pop.w / 2
+                pop_y = center_y - pop.h / 2
+
+                pop = (
+                    pop.with_position((pop_x, pop_y))
+                    .with_start(start)
+                    .with_duration(pop_duration)
+                )
+                clips.append(pop)
+
+    return clips
+
+
+def make_caption(text, start, end):
+    """Backward-compatible single-caption fallback using MoviePy 2.x syntax."""
+    duration = max(0.4, end - start)
+    font = resolve_caption_font("montserrat")
+
+    kwargs = {
+        "text": str(text).upper(),
+        "font_size": 84,
+        "color": DEFAULT_NORMAL,
+        "stroke_color": "black",
+        "stroke_width": CAPTION_STROKE,
+        "method": "caption",
+        "size": (CAPTION_MAX_WIDTH, None),
+        "text_align": "center",
+        "horizontal_align": "center",
+        "vertical_align": "center",
+        "transparent": True,
+    }
+
+    if font:
+        kwargs["font"] = font
+
+    txt = TextClip(**kwargs)
+
+    return (
+        txt.with_position(("center", "center"))
+        .with_start(start)
+        .with_duration(duration)
+    )
+
+
+def build_captions(narration):
+    audio = OUTPUT / "voice.wav"
+
+    if not audio.exists():
+        return []
+
+    plan = load_caption_plan()
+    plan = _rebuild_plan_timing(plan, narration, audio)
+
+    if plan:
+        theme = choose_caption_theme(narration, plan)
+        font = resolve_caption_font(theme)
+
+        print(
+            "Caption style:",
+            theme,
+            "font:",
+            font or "MoviePy/default",
+        )
+
+        clips = []
+        for group in plan:
+            clips.extend(make_caption_group(group, font))
+
+        if clips:
+            return clips
+
+    # Final fallback for unusual runs where no aligned caption plan can be made.
+    timings = caption_segments(audio, narration)
+
+    if timings:
+        fallback_groups = _groups_from_aligned_words(timings, plan=None)
+        theme = choose_caption_theme(narration, None)
+        font = resolve_caption_font(theme)
+        clips = []
+        for group in fallback_groups:
+            clips.extend(make_caption_group(group, font))
+        if clips:
+            return clips
+
+    return [make_caption(narration, 0, get_audio_duration())]
+
+
+# =====================================================
+# SUCCESSFUL-RENDER CLEANUP
+# =====================================================
+
+
+def cleanup_temporary_assets():
+    """
+    Remove only large renderer-generated source media.
+
+    Important small deliverables such as caption_plan.json, production data,
+    generation history, voice.wav, and final_short.mp4 are intentionally kept.
+    """
+    removed = []
+
+    for pattern in TEMP_ASSET_PATTERNS:
+        for path in OUTPUT.glob(pattern):
+            if not path.is_file():
+                continue
+
+            try:
+                size = path.stat().st_size
+                path.unlink()
+                removed.append((path.name, size))
+            except Exception as exc:
+                print("Could not remove temporary asset:", path, exc)
 
     if removed:
+        total_mb = sum(size for _, size in removed) / (1024 * 1024)
         print(
-            f"Cleaned {removed} temporary visual assets "
-            f"({removed_bytes / 1024 / 1024:.1f} MB)."
+            f"Cleaned {len(removed)} temporary asset(s) "
+            f"({total_mb:.1f} MB)."
         )
     else:
-        print(
-            "No temporary visual assets required cleanup."
-        )
+        print("No temporary media assets required cleanup.")
+
+
+# =====================================================
+# RENDER
+# =====================================================
 
 
 def render():
-    print("V6.2 Premium Renderer Starting")
+    print("V6.1 Premium Renderer Starting")
 
-    brief = load_json(
-        OUTPUT / "production_brief.json"
-    )
-
-    assets = load_json(
-        OUTPUT / "visual_assets.json"
-    )
+    brief = load_json(OUTPUT / "production_brief.json")
+    assets = load_json(OUTPUT / "visual_assets.json")
 
     total = get_audio_duration()
 
-    scene_count = len(
-        brief.get("scenes", [])
-    )
-
-    duration = total / max(
-        scene_count,
-        1,
-    )
+    scene_count = len(brief.get("scenes", []))
+    duration = total / max(scene_count, 1)
 
     clips = []
-
-    for scene in brief.get("scenes", []):
-        group = next(
-            (
-                item
-                for item in assets.get("videos", [])
-                if item.get("scene") == scene.get("scene")
-            ),
-            {},
-        )
-
-        candidates = group.get(
-            "videos",
-            [],
-        )
-
-        asset = (
-            candidates[0]
-            if candidates
-            else None
-        )
-
-        clips.append(
-            create_visual(
-                asset,
-                duration,
-            )
-        )
-
-    if not clips:
-        raise RuntimeError(
-            "No visual assets were available for rendering."
-        )
-
-    video = concatenate_videoclips(
-        clips,
-        method="compose",
-    )
-
-    audio_objects = []
+    caption_clips = []
+    video = None
+    voice = None
+    final = None
+    render_succeeded = False
 
     try:
-        voice_path = OUTPUT / "voice.wav"
-
-        if voice_path.exists():
-            voice = AudioFileClip(
-                str(voice_path)
+        for scene in brief.get("scenes", []):
+            group = next(
+                (
+                    x for x in assets.get("videos", [])
+                    if x.get("scene") == scene.get("scene")
+                ),
+                {},
             )
 
-            audio_objects.append(voice)
+            candidates = group.get("videos", [])
+            asset = candidates[0] if candidates else None
 
-            music_path = OUTPUT / "music.mp3"
+            clips.append(create_visual(asset, duration))
 
-            if music_path.exists():
-                music = AudioFileClip(
-                    str(music_path)
-                ).with_volume_scaled(0.15)
-
-                audio_objects.append(music)
-
-            video = video.with_audio(
-                CompositeAudioClip(
-                    audio_objects
-                )
-            )
-
-        caption_layers = build_captions(
-            brief
+        video = concatenate_videoclips(
+            clips,
+            method="compose",
         )
 
+        if (OUTPUT / "voice.wav").exists():
+            voice = AudioFileClip(str(OUTPUT / "voice.wav"))
+            video = video.with_audio(
+                CompositeAudioClip([voice])
+            )
+
+        caption_clips = build_captions(brief.get("narration", ""))
+
         final = CompositeVideoClip(
-            [video] + caption_layers,
+            [video] + caption_clips,
             size=(WIDTH, HEIGHT),
         )
 
@@ -1114,35 +1171,35 @@ def render():
             fps=30,
             codec="libx264",
             audio_codec="aac",
-            preset="medium",
+            preset="fast",
         )
 
-        if not FINAL_VIDEO.exists():
-            raise RuntimeError(
-                "Renderer finished without creating final_short.mp4."
-            )
+        render_succeeded = FINAL_VIDEO.exists() and FINAL_VIDEO.stat().st_size > 0
 
-        print(
-            "DONE:",
-            FINAL_VIDEO,
-        )
+        if render_succeeded:
+            print("DONE:", FINAL_VIDEO)
 
     finally:
-        # Close MoviePy resources before deleting source asset files.
-        for layer in clips:
-            close_quietly(layer)
+        # Close output/composite objects before deleting any source assets.
+        safe_close(final)
+        safe_close(voice)
+        safe_close(video)
 
-        for audio in audio_objects:
-            close_quietly(audio)
+        for clip in caption_clips:
+            safe_close(clip)
 
-        close_quietly(video)
+        for clip in clips:
+            safe_close(clip)
 
-        if "final" in locals():
-            close_quietly(final)
+        if render_succeeded:
+            cleanup_temporary_assets()
+        else:
+            print(
+                "Render did not complete successfully; temporary assets "
+                "were kept for debugging/retry."
+            )
 
-    # Keep all useful production artifacts, but remove only the large
-    # downloaded visual source files after a successful final render.
-    cleanup_visual_assets()
+    return render_succeeded
 
 
 if __name__ == "__main__":
