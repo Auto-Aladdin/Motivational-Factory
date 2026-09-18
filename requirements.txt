@@ -5,3 +5,8 @@ numpy
 torch
 spacy
 faster-whisper
+moviepy
+opencv-python
+pillow
+imageio-ffmpeg
+fonttools
