@@ -55,11 +55,15 @@ HEIGHT = 1920
 # CAPTION SETTINGS
 # =====================================================
 
-CAPTION_MAX_WIDTH = 980
+# Keep captions comfortably inside the horizontal Shorts safe area.
+CAPTION_MAX_WIDTH = 940
+CAPTION_SAFE_LEFT = 70
+CAPTION_SAFE_RIGHT = 70
 CAPTION_MIN_FONT_SIZE = 60
 CAPTION_FONT_SIZE = 84
 CAPTION_STROKE = 6
 CAPTION_MARGIN = 4
+CAPTION_LINE_GAP = 8
 # Extra internal vertical room prevents font/stroke rasterization from clipping
 # the lower edge of glyphs. Horizontal spacing/visual font size stay unchanged.
 CAPTION_VERTICAL_MARGIN = 24
@@ -77,6 +81,61 @@ DEFAULT_NORMAL = "#FFFFFF"
 DEFAULT_HIGHLIGHT = "#FFD447"
 DEFAULT_PAIN = "#FF5555"
 DEFAULT_HOPE = "#45E6FF"
+
+# Controlled premium accents. These are semantic, not random, so a whole
+# video keeps a coherent visual identity instead of becoming rainbow text.
+PREMIUM_ACCENTS = {
+    "success": "#FFD447",
+    "discipline": "#FFB14A",
+    "courage": "#FF6B57",
+    "hope": "#55DDF5",
+    "vision": "#B68CFF",
+    "growth": "#67D98C",
+    "struggle": "#FF5B62",
+    "time": "#FFC857",
+}
+
+PREMIUM_KEYWORDS = {
+    "success": {
+        "success", "successful", "win", "winner", "winning", "victory",
+        "achieve", "achieved", "achievement", "excel", "excellence",
+        "result", "results", "champion", "mastery", "breakthrough",
+    },
+    "discipline": {
+        "discipline", "focus", "control", "consistency", "consistent",
+        "determination", "determined", "persistence", "persistent",
+        "sacrifice", "action", "effort", "work", "grind", "commit",
+        "commitment", "patience",
+    },
+    "courage": {
+        "courage", "brave", "bravery", "fearless", "fearlessness",
+        "strength", "strong", "power", "powerful", "warrior", "conquer",
+        "conquered", "rise", "rising", "resilience", "resilient",
+    },
+    "hope": {
+        "hope", "faith", "believe", "belief", "believed", "future",
+        "light", "heal", "healing", "renew", "renewal", "peace",
+    },
+    "vision": {
+        "dream", "dreams", "vision", "purpose", "ambition", "potential",
+        "opportunity", "freedom", "leadership", "mindset", "purposeful",
+        "transform", "transformation", "become", "becoming",
+    },
+    "growth": {
+        "grow", "growth", "progress", "progression", "improve",
+        "improvement", "change", "changing", "rise", "rising", "evolve",
+        "evolution", "learn", "learning",
+    },
+    "struggle": {
+        "pain", "struggle", "struggles", "failure", "failed", "fail",
+        "hurt", "broken", "loss", "lost", "doubt", "doubts", "fear",
+        "obstacle", "obstacles", "hardship", "suffering",
+    },
+    "time": {
+        "time", "moment", "now", "today", "tomorrow", "seconds",
+        "minute", "minutes", "day", "days", "season", "wait", "waiting",
+    },
+}
 
 # Large temporary source assets created by this renderer.
 TEMP_ASSET_PATTERNS = (
@@ -918,48 +977,143 @@ def _make_word_clip(
     return TextClip(**kwargs)
 
 
-def _calculate_font_size(words, font, preferred=CAPTION_FONT_SIZE):
-    """Shrink the font only when needed to keep a caption group centered and readable."""
-    size = preferred
-
-    while size >= CAPTION_MIN_FONT_SIZE:
-        measured = []
-        total_width = 0
-
-        for word in words:
-            probe = _make_word_clip(word["word"], font, size, DEFAULT_NORMAL)
-            try:
-                measured.append((probe.w, probe.h))
-                total_width += probe.w
-            finally:
-                safe_close(probe)
-
-        total_width += max(0, len(words) - 1) * CAPTION_SPACING
-
-        if total_width <= CAPTION_MAX_WIDTH:
-            return size, measured
-
-        size -= 4
-
+def _measure_words(words, font, font_size):
+    """Measure caption words once at the requested font size."""
     measured = []
-    total_width = 0
     for word in words:
         probe = _make_word_clip(
             word["word"],
             font,
-            CAPTION_MIN_FONT_SIZE,
+            font_size,
             DEFAULT_NORMAL,
         )
         try:
             measured.append((probe.w, probe.h))
-            total_width += probe.w
         finally:
             safe_close(probe)
+    return measured
 
-    return CAPTION_MIN_FONT_SIZE, measured
+
+def _line_width(indices, measured):
+    if not indices:
+        return 0.0
+    return sum(measured[i][0] for i in indices) + max(0, len(indices) - 1) * CAPTION_SPACING
 
 
-def _active_color(word):
+def _line_break_penalty(words, split_index):
+    """Penalize awkward phrase breaks while still allowing natural word wrapping."""
+    left = str(words[split_index - 1]["word"]).lower().strip(".,!?;:")
+    right = str(words[split_index]["word"]).lower().strip(".,!?;:")
+
+    stopwords = {
+        "a", "an", "the", "and", "or", "but", "to", "of", "in", "on", "for",
+        "with", "from", "at", "by", "as", "is", "are", "be", "your", "you",
+    }
+
+    penalty = 0.0
+    if left in stopwords:
+        penalty += 90.0
+    if right in stopwords:
+        penalty += 70.0
+
+    raw_left = str(words[split_index - 1]["word"])
+    if raw_left.endswith((',', ';', ':')):
+        penalty -= 120.0
+    elif raw_left.endswith(('.', '!', '?')):
+        penalty -= 160.0
+
+    return penalty
+
+
+def _choose_balanced_lines(words, measured, max_width):
+    """Return one line when it fits, otherwise the best two-line split."""
+    count = len(words)
+    all_indices = list(range(count))
+
+    if _line_width(all_indices, measured) <= max_width:
+        return [all_indices]
+
+    if count <= 1:
+        return None
+
+    candidates = []
+    for split in range(1, count):
+        left = list(range(0, split))
+        right = list(range(split, count))
+        left_width = _line_width(left, measured)
+        right_width = _line_width(right, measured)
+
+        if left_width > max_width or right_width > max_width:
+            continue
+
+        total_width = max(left_width, right_width)
+        balance = abs(left_width - right_width)
+        count_balance = abs(len(left) - len(right)) * 35.0
+        phrase_penalty = _line_break_penalty(words, split)
+
+        score = balance + (total_width * 0.04) + count_balance + phrase_penalty
+        candidates.append((score, left, right))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0])
+    _, left, right = candidates[0]
+    return [left, right]
+
+
+def _calculate_caption_layout(words, font, preferred=CAPTION_FONT_SIZE):
+    """Choose a one/two-line layout, shrinking only when the safe width requires it."""
+    size = int(preferred)
+    min_size = int(CAPTION_MIN_FONT_SIZE)
+
+    while size >= min_size:
+        measured = _measure_words(words, font, size)
+        lines = _choose_balanced_lines(words, measured, CAPTION_MAX_WIDTH)
+        if lines:
+            return size, measured, lines
+        size -= 2
+
+    # Exceptional fallback: keep the caption to at most two lines and make the
+    # smallest practical reduction needed to fit an unusually long word.
+    emergency_size = min_size
+    while emergency_size >= 36:
+        measured = _measure_words(words, font, emergency_size)
+        lines = _choose_balanced_lines(words, measured, CAPTION_MAX_WIDTH)
+        if lines:
+            return emergency_size, measured, lines
+        emergency_size -= 2
+
+    measured = _measure_words(words, font, 36)
+    # A single pathological word is still kept inside the safe area by using
+    # the smallest emergency size only in this exceptional case.
+    return 36, measured, [list(range(len(words)))]
+
+
+def _keyword_category(word):
+    token = _normalize_token(word)
+    if not token:
+        return None
+
+    # A word can only receive one accent; the order below gives stronger,
+    # more specific intent precedence over broader categories.
+    priority = (
+        "struggle",
+        "discipline",
+        "courage",
+        "success",
+        "hope",
+        "vision",
+        "growth",
+        "time",
+    )
+    for category in priority:
+        if token in PREMIUM_KEYWORDS[category]:
+            return category
+    return None
+
+
+def _active_color(word, theme="cinematic"):
     style = str(word.get("style", "normal")).lower()
     supplied = str(word.get("color", "")).strip()
 
@@ -970,55 +1124,85 @@ def _active_color(word):
         return DEFAULT_PAIN
     if style == "hope":
         return DEFAULT_HOPE
+
+    category = _keyword_category(word.get("word", ""))
+    if category:
+        # Keep the palette coherent with the video theme while preserving the
+        # semantic accent family.
+        color = PREMIUM_ACCENTS[category]
+        if theme == "calm" and category in {"discipline", "courage"}:
+            return "#67D6C8"
+        if theme == "stoic" and category in {"success", "time", "vision"}:
+            return "#E4C76B"
+        if theme == "cinematic" and category == "struggle":
+            return "#FF6B61"
+        return color
+
     return DEFAULT_HIGHLIGHT
 
 
 def _is_power_word(word):
-    return str(word.get("animation", "")).lower() == "impact_pop" or str(
-        word.get("style", "")
-    ).lower() in {"highlight", "pain", "hope"}
+    if str(word.get("animation", "")).lower() == "impact_pop":
+        return True
+    if str(word.get("style", "")).lower() in {"highlight", "pain", "hope"}:
+        return True
+    category = _keyword_category(word.get("word", ""))
+    return category in {"success", "discipline", "courage", "struggle"}
 
 
-def make_caption_group(group, font):
-    """Create a centered caption group with active-word overlays."""
+def make_caption_group(group, font, theme="cinematic"):
+    """Create a centered one/two-line caption group without changing word timing."""
     words = group.get("words", [])
     if not words:
         return []
 
-    font_size, measured = _calculate_font_size(words, font)
+    font_size, measured, lines = _calculate_caption_layout(words, font)
 
-    total_width = (
-        sum(width for width, _ in measured)
-        + max(0, len(words) - 1) * CAPTION_SPACING
-    )
+    line_widths = [_line_width(line, measured) for line in lines]
+    line_heights = [max(measured[i][1] for i in line) for line in lines]
+    total_height = sum(line_heights) + max(0, len(lines) - 1) * CAPTION_LINE_GAP
 
-    left = CAPTION_CENTER_X - total_width / 2
-    max_height = max(height for _, height in measured)
-
-    # Clamp the full label box (including its stroke/margins) to the safe area.
     safe_padding = CAPTION_STROKE + CAPTION_MARGIN
-    raw_top = CAPTION_CENTER_Y - max_height / 2
+    safe_left = CAPTION_SAFE_LEFT + safe_padding
+    safe_right = WIDTH - CAPTION_SAFE_RIGHT - safe_padding
+    max_safe_width = max(1, safe_right - safe_left)
+
+    # Keep the existing vertical safe-area/bottom-cropping fix intact while
+    # adapting the total height for two-line captions.
+    raw_top = CAPTION_CENTER_Y - total_height / 2
     min_top = CAPTION_SAFE_TOP + safe_padding
-    max_top = CAPTION_SAFE_BOTTOM - max_height - safe_padding
+    max_top = CAPTION_SAFE_BOTTOM - total_height - safe_padding
     top = min(max(raw_top, min_top), max_top if max_top >= min_top else min_top)
 
-    clips = []
-    x_positions = []
+    # Per-line centered positions. The accumulated y-offset keeps two-line
+    # captions visually centered instead of pinning the second line low.
+    line_positions = {}
+    cursor_y = top
+    for line, line_height, line_width in zip(lines, line_heights, line_widths):
+        line_x = CAPTION_CENTER_X - line_width / 2
+        line_x = min(max(line_x, safe_left), safe_right - line_width)
+        for index in line:
+            line_positions[index] = (
+                line_x,
+                cursor_y,
+            )
+            line_x += measured[index][0] + CAPTION_SPACING
+        cursor_y += line_height + CAPTION_LINE_GAP
 
-    x = left
-    for width, _ in measured:
-        x_positions.append(x)
-        x += width + CAPTION_SPACING
+    clips = []
 
     group_start = float(group["start"])
     group_end = float(group["end"])
-    # Keep the already-spoken caption on screen through an audio pause, but
-    # never reveal a future word before its own spoken timestamp.
+    # Keep already-spoken words visible through an audio pause, but never show
+    # a future word before its own word-level timestamp.
     display_end = max(group_end, float(group.get("display_end", group_end)))
 
+    # Do not let more than two keyword accents dominate a single caption group.
+    accent_count = 0
     for index, word in enumerate(words):
         word_start = max(group_start, float(word["start"]))
         word_duration = max(0.01, display_end - word_start)
+        x, y = line_positions[index]
 
         base = _make_word_clip(
             word["word"],
@@ -1027,63 +1211,82 @@ def make_caption_group(group, font):
             DEFAULT_NORMAL,
         )
         base = (
-            base.with_position((x_positions[index], top))
+            base.with_position((x, y))
             .with_start(word_start)
             .with_duration(word_duration)
         )
         clips.append(base)
 
-    # Active spoken word: color change + optional short power-word pop.
     for index, word in enumerate(words):
         start = max(group_start, float(word["start"]))
         end = min(group_end, float(word["end"]))
         duration = end - start
-
         if duration <= 0:
             continue
 
+        category = _keyword_category(word.get("word", ""))
+        style = str(word.get("style", "normal")).lower()
+        should_accent = bool(category) or style in {"highlight", "pain", "hope"}
+        if should_accent and style == "normal":
+            if accent_count >= 2:
+                should_accent = False
+            else:
+                accent_count += 1
+
+        if should_accent:
+            color = _active_color(word, theme)
+        else:
+            # Preserve the existing active-word treatment for ordinary words,
+            # but do not introduce another semantic accent after the small
+            # per-group accent budget has been reached.
+            color = DEFAULT_HIGHLIGHT
         active = _make_word_clip(
             word["word"],
             font,
             font_size,
-            _active_color(word),
+            color,
         )
-
         active = (
-            active.with_position((x_positions[index], top))
+            active.with_position(line_positions[index])
             .with_start(start)
             .with_duration(duration)
         )
         clips.append(active)
 
-        # Small scale pop for high-impact words, not every word.
         if _is_power_word(word):
             pop_end = min(end, start + CAPTION_POP_DURATION)
             pop_duration = pop_end - start
-
             if pop_duration > 0:
-                pop_size = min(font_size + 12, font_size * 1.14)
+                pop_size = min(font_size + 12, int(round(font_size * 1.14)))
                 pop = _make_word_clip(
                     word["word"],
                     font,
                     pop_size,
-                    _active_color(word),
+                    _active_color(word, theme),
                 )
 
-                center_x = x_positions[index] + measured[index][0] / 2
-                center_y = top + max_height / 2
+                # Keep the pop inside both horizontal and vertical safe areas.
+                while pop.w > max_safe_width and pop_size > 48:
+                    safe_close(pop)
+                    pop_size -= 2
+                    pop = _make_word_clip(
+                        word["word"],
+                        font,
+                        pop_size,
+                        _active_color(word, theme),
+                    )
+
+                x, y = line_positions[index]
+                center_x = x + measured[index][0] / 2
+                center_y = y + measured[index][1] / 2
                 pop_x = center_x - pop.w / 2
-                raw_pop_y = center_y - pop.h / 2
+                pop_y = center_y - pop.h / 2
 
-                pop_min_y = CAPTION_SAFE_TOP + CAPTION_STROKE + CAPTION_MARGIN
-                pop_max_y = (
-                    CAPTION_SAFE_BOTTOM
-                    - pop.h
-                    - CAPTION_STROKE
-                    - CAPTION_MARGIN
-                )
+                pop_x = min(max(pop_x, safe_left), safe_right - pop.w)
+                pop_min_y = CAPTION_SAFE_TOP + safe_padding
+                pop_max_y = CAPTION_SAFE_BOTTOM - pop.h - safe_padding
                 if pop_max_y >= pop_min_y:
-                    pop_y = min(max(raw_pop_y, pop_min_y), pop_max_y)
+                    pop_y = min(max(pop_y, pop_min_y), pop_max_y)
                 else:
                     pop_y = pop_min_y
 
@@ -1095,7 +1298,6 @@ def make_caption_group(group, font):
                 clips.append(pop)
 
     return clips
-
 
 def make_caption(text, start, end):
     """Backward-compatible single-caption fallback using MoviePy 2.x syntax."""
@@ -1152,7 +1354,7 @@ def build_captions(narration):
 
         clips = []
         for group in plan:
-            clips.extend(make_caption_group(group, font))
+            clips.extend(make_caption_group(group, font, theme=theme))
 
         if clips:
             return clips
@@ -1170,7 +1372,7 @@ def build_captions(narration):
         font = resolve_caption_font(theme)
         clips = []
         for group in fallback_groups:
-            clips.extend(make_caption_group(group, font))
+            clips.extend(make_caption_group(group, font, theme=theme))
         if clips:
             return clips
 
