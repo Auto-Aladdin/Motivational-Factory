@@ -23,17 +23,32 @@ import json
 import subprocess
 from pathlib import Path
 
-from moviepy.editor import (
-    VideoFileClip,
-    ImageClip,
-    AudioFileClip,
-    CompositeAudioClip,
-    CompositeVideoClip,
-    concatenate_videoclips,
-    ColorClip,
-    TextClip,
-    vfx
-)
+try:
+    # MoviePy 1.x compatibility
+    from moviepy.editor import (
+        VideoFileClip,
+        ImageClip,
+        AudioFileClip,
+        CompositeAudioClip,
+        CompositeVideoClip,
+        concatenate_videoclips,
+        ColorClip,
+        TextClip,
+        vfx
+    )
+except ModuleNotFoundError:
+    # MoviePy 2.x compatibility
+    from moviepy import (
+        VideoFileClip,
+        ImageClip,
+        AudioFileClip,
+        CompositeAudioClip,
+        CompositeVideoClip,
+        concatenate_videoclips,
+        ColorClip,
+        TextClip,
+        vfx
+    )
 
 OUTPUT = Path("output")
 OUTPUT.mkdir(exist_ok=True)
