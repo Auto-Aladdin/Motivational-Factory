@@ -56,19 +56,12 @@ HEIGHT = 1920
 # =====================================================
 
 CAPTION_MAX_WIDTH = 920
-CAPTION_MIN_FONT_SIZE = 68
-CAPTION_FONT_SIZE = 88
+CAPTION_MIN_FONT_SIZE = 60
+CAPTION_FONT_SIZE = 84
 CAPTION_STROKE = 6
 CAPTION_SPACING = 14
-CAPTION_LINE_SPACING = 8
 CAPTION_CENTER_X = WIDTH / 2
-
-# Keep captions centered inside a conservative Shorts/Reels/TikTok safe area.
-CAPTION_SAFE_TOP = 220
-CAPTION_SAFE_BOTTOM = 320
-CAPTION_SAFE_LEFT = 60
-CAPTION_SAFE_RIGHT = 60
-CAPTION_SAFE_CENTER_Y = (CAPTION_SAFE_TOP + (HEIGHT - CAPTION_SAFE_BOTTOM)) / 2
+CAPTION_CENTER_Y = HEIGHT / 2
 CAPTION_POP_DURATION = 0.11
 
 # Existing caption-plan colors are preserved.
@@ -125,51 +118,37 @@ def get_audio_duration():
 # =====================================================
 
 
-def fit_vertical(clip, focus_x=0.5, focus_y=0.5):
-    """Fit media to 1080x1920 with a controlled crop focus.
-
-    The default remains a centered crop. Reused assets may receive a small,
-    deterministic focus shift so returning footage does not look like a
-    copy-pasted loop.
-    """
+def fit_vertical(clip):
     clip = clip.resized(height=HEIGHT)
 
     if clip.w < WIDTH:
         clip = clip.resized(width=WIDTH)
 
-    focus_x = max(0.0, min(1.0, float(focus_x)))
-    focus_y = max(0.0, min(1.0, float(focus_y)))
-
-    x_center = (clip.w - WIDTH) * focus_x + WIDTH / 2
-    y_center = (clip.h - HEIGHT) * focus_y + HEIGHT / 2
-
     # MoviePy 2.x renamed crop -> cropped
     if hasattr(clip, "cropped"):
         return clip.cropped(
-            x_center=x_center,
-            y_center=y_center,
+            x_center=clip.w / 2,
+            y_center=clip.h / 2,
             width=WIDTH,
             height=HEIGHT,
         )
 
     return clip.crop(
-        x_center=x_center,
-        y_center=y_center,
+        x_center=clip.w / 2,
+        y_center=clip.h / 2,
         width=WIDTH,
         height=HEIGHT,
     )
 
 
-def cinematic_grade(clip, intensity=0.42):
-    intensity = max(0.0, min(0.55, float(intensity)))
+def cinematic_grade(clip):
     overlay = ColorClip(
         (WIDTH, HEIGHT),
         color=(0, 0, 0),
         duration=clip.duration,
-    ).with_opacity(intensity)
+    ).with_opacity(0.42)
 
     return CompositeVideoClip([clip, overlay])
-
 
 
 # =====================================================
@@ -192,8 +171,7 @@ def download(url, name):
     return path
 
 
-def create_visual(asset, duration, scene_index=1, reuse_variant=0, grade_strength=0.42):
-    """Create one visual while allowing deliberate crop/timing variation on reuse."""
+def create_visual(asset, duration):
     if not asset:
         return ColorClip(
             (WIDTH, HEIGHT),
@@ -219,31 +197,13 @@ def create_visual(asset, duration, scene_index=1, reuse_variant=0, grade_strengt
         else f"asset_{asset.get('id','x')}.jpg",
     )
 
-    # Slight deterministic crop variation is only used when an asset returns.
-    # First use stays centered; later uses shift subtly left/right.
-    variant = int(reuse_variant or 0)
-    focus_options = (0.50, 0.44, 0.56)
-    focus_x = focus_options[variant % len(focus_options)]
-    focus_y = 0.50
-
     if is_video:
         clip = VideoFileClip(str(path))
-        if clip.duration > duration:
-            max_start = max(0.0, clip.duration - duration)
-            # Deterministic excerpt variation; no random behaviour.
-            start_offset = min(
-                max_start,
-                (scene_index * 1.37 + variant * 2.11) % (max_start + 0.01),
-            )
-            clip = clip.subclipped(start_offset, start_offset + duration)
+        clip = clip.subclipped(0, min(duration, clip.duration))
     else:
         clip = ImageClip(str(path)).with_duration(duration)
 
-    return cinematic_grade(
-        fit_vertical(clip, focus_x=focus_x, focus_y=focus_y),
-        intensity=grade_strength,
-    )
-
+    return cinematic_grade(fit_vertical(clip))
 
 
 # =====================================================
@@ -286,7 +246,12 @@ def _find_font_file(patterns):
 
 
 def resolve_caption_font(theme):
-    """Resolve a story-appropriate display font with robust runner fallbacks."""
+    """
+    Prefer the requested style fonts when they are installed.
+    GitHub/Linux runners may not ship proprietary fonts, so safe open-font
+    fallbacks are provided without changing the visual hierarchy.
+    """
+
     exact = {
         "montserrat": [
             "montserrat-extrabold",
@@ -296,26 +261,14 @@ def resolve_caption_font(theme):
         "anton": [
             "anton-regular",
             "anton",
-            "oswald-bold",
-            "bebasneue",
         ],
         "impact": [
             "impact",
-            "anton",
-            "oswald-bold",
         ],
         "sfpro": [
             "sf-pro-display-bold",
             "sfprodisplay-bold",
             "sfprodisplay",
-            "interdisplay-bold",
-            "inter-bold",
-        ],
-        "classical": [
-            "ebgaramond12-bold",
-            "ebgaramond-bold",
-            "cormorantgaramond-bold",
-            "cinzel-bold",
         ],
         "helvetica": [
             "helvetica-bold",
@@ -332,26 +285,17 @@ def resolve_caption_font(theme):
         "anton": [
             "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
             "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf",
         ],
         "impact": [
             "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
             "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
         ],
         "sfpro": [
-            "/usr/share/fonts/opentype/inter/InterDisplay-Bold.otf",
-            "/usr/share/fonts/opentype/inter/Inter-Bold.otf",
             "/usr/share/fonts/truetype/lato/Lato-Heavy.ttf",
             "/usr/share/fonts/truetype/lato/Lato-Black.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         ],
-        "classical": [
-            "/usr/share/fonts/truetype/ebgaramond/EBGaramond12-Bold.ttf",
-            "/usr/share/fonts/truetype/ebgaramond/EBGaramond-InitialsF1.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
-        ],
         "helvetica": [
-            "/usr/share/fonts/opentype/inter/InterDisplay-SemiBold.otf",
             "/usr/share/fonts/truetype/lato/Lato-Heavy.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         ],
@@ -368,82 +312,39 @@ def resolve_caption_font(theme):
     return None
 
 
-def choose_caption_theme(narration, caption_plan=None, brief=None):
-    """Pick one intentional typography personality for the whole video."""
-    text_parts = [str(narration or "")]
+def choose_caption_theme(narration, caption_plan=None):
+    """Pick a deterministic typography personality from the story topic."""
+    text = str(narration or "").lower()
 
-    if isinstance(brief, dict):
-        text_parts.extend(
-            [
-                str(brief.get("title", "")),
-                str(brief.get("theme", "")),
-                str(brief.get("voice_direction", {}).get("personality", "")),
-                str(brief.get("creative_direction", {}).get("philosophical_theme", "")),
-                str(brief.get("creative_direction", {}).get("emotional_arc", "")),
-                str(brief.get("creative_direction", {}).get("visual_style", "")),
-            ]
-        )
-
-    text = " ".join(text_parts).lower()
-
-    scores = {
-        "montserrat": 0,
-        "anton": 0,
-        "impact": 0,
-        "sfpro": 0,
-        "classical": 0,
-        "helvetica": 0,
-    }
-
-    keyword_sets = {
+    themes = {
         "anton": {
-            "warrior", "battle", "fight", "grind", "discipline",
+            "never", "quit", "fight", "hard", "grind", "discipline",
             "sacrifice", "challenge", "prove", "strong", "strength",
-            "pain", "failure", "comeback", "rise", "resilience",
-            "self-mastery", "mastery", "unstoppable", "win", "never",
-        },
-        "impact": {
-            "fear", "broken", "lost", "alone", "regret", "warning",
-            "danger", "truth", "wake", "destroy", "failure", "stop",
-            "crisis", "hard", "pain",
+            "pain", "failure", "comeback", "rise", "battle", "win",
         },
         "montserrat": {
             "success", "business", "work", "career", "money", "wealth",
-            "focus", "productivity", "goal", "growth", "confidence",
-            "achievement", "discipline", "performance", "success",
+            "focus", "productivity", "goal", "goals", "growth",
+            "confidence", "achievement", "discipline",
+        },
+        "impact": {
+            "warning", "danger", "fear", "broken", "lost", "alone",
+            "failure", "regret", "destroy", "destroyed", "escape",
+            "stop", "wake", "truth",
         },
         "sfpro": {
             "life", "future", "purpose", "meaning", "mind", "choice",
             "time", "today", "tomorrow", "believe", "thought",
-            "journey", "identity", "calm", "healing", "reflection",
-        },
-        "classical": {
-            "stoic", "stoicism", "marcus", "aurelius", "seneca",
-            "epictetus", "ancient", "wisdom", "philosophy", "virtue",
-            "roman", "ethics", "self-control", "self control",
-        },
-        "helvetica": {
-            "premium", "modern", "clean", "minimal", "clarity",
-            "clarity", "technology", "modern", "precision",
+            "philosophy", "journey", "identity",
         },
     }
 
-    for theme, words in keyword_sets.items():
-        for word in words:
-            if re.search(rf"\b{re.escape(word)}\b", text):
-                scores[theme] += 2
+    scores = {
+        theme: sum(1 for keyword in words if re.search(rf"\b{re.escape(keyword)}\b", text))
+        for theme, words in themes.items()
+    }
 
-    if isinstance(brief, dict):
-        voice = str(brief.get("voice_direction", {}).get("personality", "")).lower()
-        if "stoic" in voice:
-            scores["classical"] += 5
-        elif "power" in voice:
-            scores["anton"] += 4
-        elif "warm" in voice:
-            scores["sfpro"] += 3
-        elif "hopeful" in voice:
-            scores["montserrat"] += 2
-
+    # If the plan contains many hope words, favor the cleaner premium style.
     if caption_plan:
         styled = [
             word
@@ -451,24 +352,14 @@ def choose_caption_theme(narration, caption_plan=None, brief=None):
             for word in item.get("words", [])
         ]
         hope_count = sum(
-            1
-            for word in styled
+            1 for word in styled
             if str(word.get("style", "")).lower() == "hope"
-        )
-        pain_count = sum(
-            1
-            for word in styled
-            if str(word.get("style", "")).lower() == "pain"
         )
         if hope_count >= 2:
             scores["sfpro"] += 2
-        if pain_count >= 2:
-            scores["impact"] += 2
 
-    # Keep one coherent typography personality throughout a video.
-    best = max(scores, key=scores.get)
+    best = max(scores, key=scores.get) if scores else "montserrat"
     return best if scores.get(best, 0) > 0 else "montserrat"
-
 
 
 # =====================================================
@@ -952,74 +843,45 @@ def _make_word_clip(
     return TextClip(**kwargs)
 
 
-def _measure_words(words, font, font_size):
+def _calculate_font_size(words, font, preferred=CAPTION_FONT_SIZE):
+    """Shrink the font only when needed to keep a caption group centered and readable."""
+    size = preferred
+
+    while size >= CAPTION_MIN_FONT_SIZE:
+        measured = []
+        total_width = 0
+
+        for word in words:
+            probe = _make_word_clip(word["word"], font, size, DEFAULT_NORMAL)
+            try:
+                measured.append((probe.w, probe.h))
+                total_width += probe.w
+            finally:
+                safe_close(probe)
+
+        total_width += max(0, len(words) - 1) * CAPTION_SPACING
+
+        if total_width <= CAPTION_MAX_WIDTH:
+            return size, measured
+
+        size -= 4
+
     measured = []
+    total_width = 0
     for word in words:
         probe = _make_word_clip(
             word["word"],
             font,
-            font_size,
+            CAPTION_MIN_FONT_SIZE,
             DEFAULT_NORMAL,
         )
         try:
             measured.append((probe.w, probe.h))
+            total_width += probe.w
         finally:
             safe_close(probe)
-    return measured
 
-
-def _wrap_caption_words(words, measured, max_width):
-    """Greedy 1-2 line wrap, preserving word order and timings."""
-    lines = []
-    current = []
-    current_width = 0
-
-    for index, (word, size) in enumerate(zip(words, measured)):
-        width = size[0]
-        proposed = width if not current else current_width + CAPTION_SPACING + width
-
-        if current and proposed > max_width:
-            lines.append(current)
-            current = [index]
-            current_width = width
-        else:
-            current.append(index)
-            current_width = proposed
-
-    if current:
-        lines.append(current)
-
-    return lines
-
-
-def _calculate_caption_layout(words, font, preferred=CAPTION_FONT_SIZE):
-    """Find the largest readable size that fits inside the safe width in <=2 lines."""
-    size = preferred
-
-    while size >= CAPTION_MIN_FONT_SIZE:
-        measured = _measure_words(words, font, size)
-        lines = _wrap_caption_words(words, measured, CAPTION_MAX_WIDTH)
-
-        if len(lines) <= 2:
-            return size, measured, lines
-
-        size -= 4
-
-    measured = _measure_words(words, font, CAPTION_MIN_FONT_SIZE)
-    lines = _wrap_caption_words(words, measured, CAPTION_MAX_WIDTH)
-    return CAPTION_MIN_FONT_SIZE, measured, lines[:2]
-
-
-def _clamp_caption_position(x, y, width, height):
-    left_limit = CAPTION_SAFE_LEFT
-    right_limit = WIDTH - CAPTION_SAFE_RIGHT - width
-    top_limit = CAPTION_SAFE_TOP
-    bottom_limit = HEIGHT - CAPTION_SAFE_BOTTOM - height
-
-    return (
-        max(left_limit, min(float(x), float(right_limit))),
-        max(top_limit, min(float(y), float(bottom_limit))),
-    )
+    return CAPTION_MIN_FONT_SIZE, measured
 
 
 def _active_color(word):
@@ -1043,51 +905,33 @@ def _is_power_word(word):
 
 
 def make_caption_group(group, font):
-    """Create a centered caption group with safe-area layout and active-word overlays."""
+    """Create a centered caption group with active-word overlays."""
     words = group.get("words", [])
     if not words:
         return []
 
-    font_size, measured, lines = _calculate_caption_layout(words, font)
+    font_size, measured = _calculate_font_size(words, font)
 
-    line_widths = []
-    line_heights = []
-    for line in lines:
-        line_widths.append(
-            sum(measured[i][0] for i in line)
-            + max(0, len(line) - 1) * CAPTION_SPACING
-        )
-        line_heights.append(max(measured[i][1] for i in line))
-
-    total_height = sum(line_heights) + max(0, len(lines) - 1) * CAPTION_LINE_SPACING
-    top = CAPTION_SAFE_CENTER_Y - total_height / 2
-    top = max(
-        CAPTION_SAFE_TOP,
-        min(top, HEIGHT - CAPTION_SAFE_BOTTOM - total_height),
+    total_width = (
+        sum(width for width, _ in measured)
+        + max(0, len(words) - 1) * CAPTION_SPACING
     )
 
-    positions = {}
-    current_y = top
+    left = CAPTION_CENTER_X - total_width / 2
+    max_height = max(height for _, height in measured)
+    top = CAPTION_CENTER_Y - max_height / 2
 
-    for line_index, line in enumerate(lines):
-        line_width = line_widths[line_index]
-        x = CAPTION_CENTER_X - line_width / 2
-        line_height = line_heights[line_index]
+    clips = []
+    x_positions = []
 
-        for word_index in line:
-            word_width, word_height = measured[word_index]
-            y = current_y + (line_height - word_height) / 2
-            x, y = _clamp_caption_position(x, y, word_width, word_height)
-            positions[word_index] = (x, y)
-            x += word_width + CAPTION_SPACING
-
-        current_y += line_height + CAPTION_LINE_SPACING
+    x = left
+    for width, _ in measured:
+        x_positions.append(x)
+        x += width + CAPTION_SPACING
 
     group_start = float(group["start"])
     group_end = float(group["end"])
     group_duration = max(0.05, group_end - group_start)
-
-    clips = []
 
     # Base sentence: all words remain visible together.
     for index, word in enumerate(words):
@@ -1097,9 +941,8 @@ def make_caption_group(group, font):
             font_size,
             DEFAULT_NORMAL,
         )
-        x, y = positions[index]
         base = (
-            base.with_position((x, y))
+            base.with_position((x_positions[index], top))
             .with_start(group_start)
             .with_duration(group_duration)
         )
@@ -1121,20 +964,20 @@ def make_caption_group(group, font):
             _active_color(word),
         )
 
-        x, y = positions[index]
         active = (
-            active.with_position((x, y))
+            active.with_position((x_positions[index], top))
             .with_start(start)
             .with_duration(duration)
         )
         clips.append(active)
 
+        # Small scale pop for high-impact words, not every word.
         if _is_power_word(word):
             pop_end = min(end, start + CAPTION_POP_DURATION)
             pop_duration = pop_end - start
 
             if pop_duration > 0:
-                pop_size = min(font_size + 12, int(font_size * 1.14))
+                pop_size = min(font_size + 12, font_size * 1.14)
                 pop = _make_word_clip(
                     word["word"],
                     font,
@@ -1142,11 +985,10 @@ def make_caption_group(group, font):
                     _active_color(word),
                 )
 
-                center_x = x + measured[index][0] / 2
-                center_y = y + measured[index][1] / 2
+                center_x = x_positions[index] + measured[index][0] / 2
+                center_y = top + max_height / 2
                 pop_x = center_x - pop.w / 2
                 pop_y = center_y - pop.h / 2
-                pop_x, pop_y = _clamp_caption_position(pop_x, pop_y, pop.w, pop.h)
 
                 pop = (
                     pop.with_position((pop_x, pop_y))
@@ -1156,7 +998,6 @@ def make_caption_group(group, font):
                 clips.append(pop)
 
     return clips
-
 
 
 def make_caption(text, start, end):
@@ -1184,13 +1025,13 @@ def make_caption(text, start, end):
     txt = TextClip(**kwargs)
 
     return (
-        txt.with_position(("center", CAPTION_SAFE_CENTER_Y))
+        txt.with_position(("center", "center"))
         .with_start(start)
         .with_duration(duration)
     )
 
 
-def build_captions(narration, brief=None):
+def build_captions(narration):
     audio = OUTPUT / "voice.wav"
 
     if not audio.exists():
@@ -1200,7 +1041,7 @@ def build_captions(narration, brief=None):
     plan = _rebuild_plan_timing(plan, narration, audio)
 
     if plan:
-        theme = choose_caption_theme(narration, plan, brief=brief)
+        theme = choose_caption_theme(narration, plan)
         font = resolve_caption_font(theme)
 
         print(
@@ -1222,7 +1063,7 @@ def build_captions(narration, brief=None):
 
     if timings:
         fallback_groups = _groups_from_aligned_words(timings, plan=None)
-        theme = choose_caption_theme(narration, None, brief=brief)
+        theme = choose_caption_theme(narration, None)
         font = resolve_caption_font(theme)
         clips = []
         for group in fallback_groups:
@@ -1270,290 +1111,6 @@ def cleanup_temporary_assets():
 
 
 # =====================================================
-# SMART VISUAL SELECTION
-# =====================================================
-
-
-def _tokenize_visual_text(value):
-    return {
-        token
-        for token in re.findall(r"[a-z0-9']+", str(value or "").lower())
-        if len(token) >= 3
-    }
-
-
-def _visual_text(scene):
-    visual = scene.get("visual", {}) if isinstance(scene, dict) else {}
-    return " ".join(
-        [
-            str(scene.get("pexels_query", "")),
-            str(scene.get("caption", "")),
-            str(scene.get("voice_line", "")),
-            str(visual.get("type", "")),
-            str(visual.get("subject", "")),
-            str(visual.get("action", "")),
-            str(visual.get("emotion", "")),
-            str(visual.get("environment", "")),
-            str(visual.get("composition", "")),
-            str(visual.get("camera", "")),
-        ]
-    )
-
-
-def _asset_text(asset):
-    return " ".join(
-        [
-            str(asset.get("url", "")),
-            str(asset.get("preview", "")),
-            str(asset.get("alt", "")),
-            str(asset.get("image", "")),
-            str(asset.get("video_file", "")),
-        ]
-    )
-
-
-def _source_kind(asset):
-    return "video" if asset and asset.get("video_file") else "image"
-
-
-def _story_prefers_video(scene):
-    visual = scene.get("visual", {}) if isinstance(scene, dict) else {}
-    text = _visual_text(scene).lower()
-    dynamic_words = {
-        "walk", "walking", "run", "running", "fight", "fighting",
-        "train", "training", "climb", "fall", "rising", "rise",
-        "open", "opening", "turn", "turning", "break", "breaking",
-        "move", "moving", "drive", "driving", "work", "working",
-        "swing", "sprinting", "storm", "wave", "waves", "motion",
-    }
-    type_text = str(visual.get("type", "")).lower()
-    camera_text = str(visual.get("camera", "")).lower()
-
-    dynamic_score = sum(1 for word in dynamic_words if re.search(rf"\b{re.escape(word)}\b", text))
-    if any(term in type_text for term in ("wide", "action", "tracking", "motion", "slow-motion")):
-        dynamic_score += 2
-    if any(term in camera_text for term in ("tracking", "pan", "dolly", "movement", "slow-motion")):
-        dynamic_score += 2
-    return dynamic_score >= 2
-
-
-def _story_prefers_image(scene):
-    visual = scene.get("visual", {}) if isinstance(scene, dict) else {}
-    text = _visual_text(scene).lower()
-    static_terms = {
-        "statue", "manuscript", "book", "candle", "key", "sword",
-        "portrait", "reflection", "shadow", "silhouette", "ruins",
-        "architecture", "marble", "letter", "photograph", "symbol",
-        "hourglass", "artwork", "painting", "still", "detail",
-    }
-    type_text = str(visual.get("type", "")).lower()
-    score = sum(1 for word in static_terms if re.search(rf"\b{re.escape(word)}\b", text))
-    if any(term in type_text for term in ("detail", "close-up", "close up", "symbolic", "portrait", "still")):
-        score += 2
-    return score >= 2
-
-
-def _asset_score(asset, scene, target_duration, state):
-    kind = _source_kind(asset)
-    story_tokens = _tokenize_visual_text(_visual_text(scene))
-    asset_tokens = _tokenize_visual_text(_asset_text(asset))
-    overlap = len(story_tokens & asset_tokens)
-    score = overlap * 3.5
-
-    if _story_prefers_video(scene):
-        score += 18 if kind == "video" else 4
-    elif _story_prefers_image(scene):
-        score += 18 if kind == "image" else 5
-    else:
-        score += 9
-
-    if kind == "video":
-        width = float(asset.get("video_file_width") or asset.get("width") or 0)
-        height = float(asset.get("video_file_height") or asset.get("height") or 0)
-        duration = float(asset.get("duration") or 0)
-        if width >= 1920 and height >= 1080:
-            score += 5
-        if duration >= target_duration:
-            score += 5
-        elif duration >= target_duration * 0.75:
-            score += 2
-    else:
-        width = float(asset.get("width") or 0)
-        height = float(asset.get("height") or 0)
-        if width >= 1920 and height >= 1080:
-            score += 5
-
-    key = (kind, str(asset.get("id", "")))
-    used_count = int(state.get("used", {}).get(key, 0))
-    if used_count == 0:
-        score += 8
-    elif used_count == 1:
-        # Intentional reuse is allowed when a strong candidate returns.
-        if key != state.get("last_key"):
-            score += 7
-        else:
-            score -= 18
-    else:
-        score -= 60
-
-    if key == state.get("last_key"):
-        score -= 45
-
-    return score
-
-
-def choose_visual_asset(scene, assets, target_duration, state):
-    """Choose video/image from the already-collected Pexels candidates."""
-    scene_no = scene.get("scene")
-    video_group = next(
-        (item for item in assets.get("videos", []) if item.get("scene") == scene_no),
-        {},
-    )
-    image_group = next(
-        (item for item in assets.get("images", []) if item.get("scene") == scene_no),
-        {},
-    )
-
-    candidates = []
-    for item in video_group.get("videos", []) or []:
-        candidate = dict(item)
-        candidate["_kind"] = "video"
-        candidates.append(candidate)
-    for item in image_group.get("images", []) or []:
-        candidate = dict(item)
-        candidate["_kind"] = "image"
-        candidates.append(candidate)
-
-    if not candidates:
-        return None, 0
-
-    scored = [
-        (_asset_score(candidate, scene, target_duration, state), candidate)
-        for candidate in candidates
-    ]
-    scored.sort(key=lambda item: item[0], reverse=True)
-
-    score, selected = scored[0]
-    key = (_source_kind(selected), str(selected.get("id", "")))
-    reuse_variant = int(state.get("used", {}).get(key, 0))
-    state.setdefault("used", {})[key] = reuse_variant + 1
-    state["last_key"] = key
-    state.setdefault("history", []).append(
-        {
-            "scene": scene_no,
-            "kind": _source_kind(selected),
-            "id": selected.get("id"),
-            "score": round(score, 2),
-            "reuse": reuse_variant,
-        }
-    )
-
-    return selected, reuse_variant
-
-
-# =====================================================
-# SEO METADATA
-# =====================================================
-
-
-SEO_STOPWORDS = {
-    "the", "and", "for", "with", "that", "this", "from", "into",
-    "your", "you", "our", "are", "not", "but", "what", "when",
-    "how", "why", "can", "will", "its", "about", "than", "have",
-    "has", "been", "being", "their", "they", "them", "all", "one",
-    "just", "like", "through", "after", "before", "over", "under",
-}
-
-
-def _seo_words(text):
-    words = []
-    for token in re.findall(r"[A-Za-z][A-Za-z0-9-]+", str(text or "")):
-        clean = token.lower().strip("-")
-        if len(clean) >= 4 and clean not in SEO_STOPWORDS and clean not in words:
-            words.append(clean)
-    return words
-
-
-def build_seo_metadata(brief):
-    """Create natural topic-based metadata without changing story generation."""
-    title = str(brief.get("title", "Motivational Short")).strip()
-    theme = str(brief.get("theme", "")).strip()
-    hook = str(brief.get("hook", "")).strip()
-    narration = str(brief.get("narration", "")).strip()
-    creative = brief.get("creative_direction", {}) or {}
-    scenes = brief.get("scenes", []) or []
-
-    scene_topics = []
-    for scene in scenes:
-        scene_topics.extend(
-            [
-                str(scene.get("caption", "")),
-                str(scene.get("pexels_query", "")),
-                str(scene.get("visual", {}).get("subject", "")),
-            ]
-        )
-
-    raw_terms = _seo_words(
-        " ".join(
-            [
-                title,
-                theme,
-                str(creative.get("philosophical_theme", "")),
-                str(creative.get("emotional_arc", "")),
-                *scene_topics,
-            ]
-        )
-    )
-
-    # Keep keywords focused rather than dumping every narration word.
-    keywords = raw_terms[:14]
-
-    hashtags = []
-    for term in keywords:
-        tag = "#" + re.sub(r"[^A-Za-z0-9]", "", term.title())
-        if tag not in hashtags:
-            hashtags.append(tag)
-        if len(hashtags) >= 8:
-            break
-
-    description_parts = []
-    if hook:
-        description_parts.append(hook)
-    if theme:
-        description_parts.append(
-            f"A cinematic motivational short about {theme.lower()}, resilience, and personal growth."
-        )
-    if narration:
-        sentences = re.split(r"(?<=[.!?])\s+", narration)
-        summary = " ".join(sentences[:2]).strip()
-        if summary and summary != hook:
-            description_parts.append(summary)
-
-    description = " ".join(description_parts).strip()
-    if len(description) > 4200:
-        description = description[:4197].rsplit(" ", 1)[0] + "..."
-
-    return {
-        "title": title,
-        "description": description,
-        "keywords": keywords,
-        "hashtags": hashtags,
-        "topic": theme,
-        "source": "generated from production_brief.json without changing the content pipeline",
-    }
-
-
-def save_seo_metadata(brief):
-    metadata = build_seo_metadata(brief)
-    with open(OUTPUT / "seo_metadata.json", "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2, ensure_ascii=False)
-    print(
-        "SEO metadata saved:",
-        metadata.get("title", ""),
-    )
-
-
-# =====================================================
 # RENDER
 # =====================================================
 
@@ -1566,8 +1123,6 @@ def render():
 
     total = get_audio_duration()
 
-    save_seo_metadata(brief)
-
     scene_count = len(brief.get("scenes", []))
     duration = total / max(scene_count, 1)
 
@@ -1579,47 +1134,19 @@ def render():
     render_succeeded = False
 
     try:
-        selection_state = {"used": {}, "last_key": None, "history": []}
-
         for scene in brief.get("scenes", []):
-            asset, reuse_variant = choose_visual_asset(
-                scene,
-                assets,
-                duration,
-                selection_state,
+            group = next(
+                (
+                    x for x in assets.get("videos", [])
+                    if x.get("scene") == scene.get("scene")
+                ),
+                {},
             )
 
-            if asset:
-                print(
-                    f"Scene {scene.get('scene')}: "
-                    f"{_source_kind(asset)} asset {asset.get('id')} "
-                    f"(reuse={reuse_variant})"
-                )
-            else:
-                print(
-                    f"Scene {scene.get('scene')}: no suitable asset found; "
-                    "using fallback background."
-                )
+            candidates = group.get("videos", [])
+            asset = candidates[0] if candidates else None
 
-            # Slightly stronger treatment for darker/pain-oriented beats, and
-            # slightly lighter treatment for hopeful beats. This keeps the
-            # story's visual arc without changing the underlying scene logic.
-            emotion = str(scene.get("visual", {}).get("emotion", "")).lower()
-            grade_strength = 0.42
-            if any(word in emotion for word in ("hope", "inspiration", "confidence", "determination")):
-                grade_strength = 0.34
-            elif any(word in emotion for word in ("despair", "hopeless", "pain", "fear", "dark")):
-                grade_strength = 0.47
-
-            clips.append(
-                create_visual(
-                    asset,
-                    duration,
-                    scene_index=int(scene.get("scene") or 1),
-                    reuse_variant=reuse_variant,
-                    grade_strength=grade_strength,
-                )
-            )
+            clips.append(create_visual(asset, duration))
 
         video = concatenate_videoclips(
             clips,
@@ -1632,7 +1159,7 @@ def render():
                 CompositeAudioClip([voice])
             )
 
-        caption_clips = build_captions(brief.get("narration", ""), brief=brief)
+        caption_clips = build_captions(brief.get("narration", ""))
 
         final = CompositeVideoClip(
             [video] + caption_clips,
