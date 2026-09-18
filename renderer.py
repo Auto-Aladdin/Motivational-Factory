@@ -172,16 +172,23 @@ def caption_segments(audio_path):
 def make_caption(text, start, end):
     duration = max(0.4, end - start)
 
+    # MoviePy 2.x requires explicit keyword arguments for TextClip and
+    # expects a font file path rather than the old 1.x font name.
+    font_path = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+    if not font_path.exists():
+        font_path = None
+
     txt = TextClip(
-        text.upper(),
-        fontsize=80,
-        font="DejaVu-Sans-Bold",
+        text=text.upper(),
+        font=font_path,
+        font_size=80,
         color="white",
         stroke_color="black",
         stroke_width=3,
         method="caption",
         size=(900, None),
-        align="center",
+        text_align="center",
+        horizontal_align="center",
     )
 
     return (
