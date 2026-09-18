@@ -364,6 +364,18 @@ def create_caption_plan(
         narration
     )
 
+    # The factory already creates voice.wav immediately before the caption
+    # stage. When the caller does not explicitly pass an audio path, use that
+    # real generated audio so word timings come from the spoken voice rather
+    # than the old fixed-duration fallback. This does not change pipeline
+    # order or any upstream generation logic.
+    if audio_path is None:
+
+        default_audio = CAPTION_OUTPUT.parent / "voice.wav"
+
+        if default_audio.exists():
+            audio_path = str(default_audio)
+
 
     text_words = tokenize(
         narration
