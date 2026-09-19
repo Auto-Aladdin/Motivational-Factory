@@ -10,6 +10,7 @@ from datetime import datetime
 from voice_engine import generate_voice
 from caption_engine import create_caption_plan
 from renderer import render
+from seo_generator import generate_seo_metadata
 
 
 
@@ -2224,11 +2225,44 @@ print(
     "Starting V6 cinematic renderer..."
 )
 
-render()
+render_succeeded = render()
+seo_succeeded = False
 
-print(
-    "Video rendering completed"
-)
+if render_succeeded:
+
+    print(
+        "Video rendering completed"
+    )
+
+    # =====================================
+    # POST-RENDER SEO GENERATION
+    # =====================================
+
+    print(
+        "Generating platform SEO metadata..."
+    )
+
+    try:
+
+        generate_seo_metadata(
+            final
+        )
+
+        seo_succeeded = True
+
+    except Exception as seo_error:
+
+        print(
+            "WARNING: SEO generation failed; video output preserved:",
+            seo_error
+        )
+
+else:
+
+    print(
+        "WARNING: Video rendering did not complete successfully; "
+        "SEO generation skipped."
+    )
 
 
 # =====================================
@@ -2240,11 +2274,33 @@ save_history(
 )
 
 
+render_status = (
+    "✓ final_short.mp4 generated"
+    if render_succeeded
+    else "✗ final_short.mp4 was not generated"
+)
+
+seo_status = (
+    "✓ SEO metadata generated"
+    if seo_succeeded
+    else (
+        "⚠ SEO metadata unavailable"
+        if render_succeeded
+        else "— SEO metadata skipped because rendering failed"
+    )
+)
+
+workflow_status = (
+    "COMPLETE"
+    if render_succeeded
+    else "FINISHED WITH WARNINGS"
+)
+
 print(
-    """
+    f"""
 =================================
 
-MOTIVATIONAL FACTORY V5.3 COMPLETE
+MOTIVATIONAL FACTORY V5.3 {workflow_status}
 
 Generated:
 
@@ -2264,9 +2320,10 @@ Quality Gate:
 ✓ Visual strength checked
 ✓ Repetition risk checked
 
-Ready for:
+Final Outputs:
 
-V6 VIDEO RENDERER
+{render_status}
+{seo_status}
 
 =================================
 """
