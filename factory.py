@@ -62,6 +62,117 @@ VOICE_PROFILES = {
 DEFAULT_VOICE_PROFILE = "stoic_male"
 
 
+def print_seo_metadata_summary(metadata):
+    """Print a human-readable SEO summary without changing the saved JSON."""
+    if not isinstance(metadata, dict):
+        print("WARNING: SEO metadata summary unavailable: invalid metadata object")
+        return
+
+    def _display(value):
+        if isinstance(value, list):
+            return ", ".join(str(item) for item in value) or "None"
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False)
+        text = str(value or "").strip()
+        return text or "None"
+
+    def _section(title, fields):
+        print("\n" + "-" * 50)
+        print(title)
+        print("-" * 50)
+        for label, value in fields:
+            print(f"{label}:")
+            if isinstance(value, list):
+                if not value:
+                    print("  None")
+                else:
+                    for index, item in enumerate(value, start=1):
+                        print(f"  {index}. {item}")
+            else:
+                print(f"  {_display(value)}")
+
+    print("\n" + "=" * 50)
+    print("SEO METADATA GENERATED SUCCESSFULLY")
+    print("=" * 50)
+
+    content = metadata.get("content_analysis", {})
+    if content:
+        _section(
+            "CONTENT ANALYSIS",
+            [
+                ("Primary Topic", content.get("primary_topic")),
+                ("Secondary Topics", content.get("secondary_topics")),
+                ("Content Type", content.get("content_type")),
+                ("Emotional Tone", content.get("emotional_tone")),
+                ("Viewer Intent", content.get("viewer_intent")),
+                ("Target Audience", content.get("target_audience")),
+                ("Core Message", content.get("core_message")),
+            ],
+        )
+
+    youtube = metadata.get("youtube_shorts", {})
+    _section(
+        "📌 YouTube Shorts",
+        [
+            ("Title Options", youtube.get("title_suggestions", [])),
+            ("Description", youtube.get("description")),
+            ("Short Description", youtube.get("short_description")),
+            ("Long Description", youtube.get("long_description")),
+            ("Keywords", youtube.get("keywords", [])),
+            ("Search Tags", youtube.get("search_tags", [])),
+            ("Hashtags", youtube.get("hashtags", [])),
+            ("Hook Suggestions", youtube.get("hook_suggestions", [])),
+            ("Search Phrases", youtube.get("search_phrases", [])),
+            ("Viewer Retention Text", youtube.get("viewer_retention_text")),
+            ("Category / Topic Suggestions", youtube.get("category_topic_suggestions", [])),
+            ("Optimization Note", youtube.get("optimization_note")),
+        ],
+    )
+
+    tiktok = metadata.get("tiktok", {})
+    _section(
+        "📌 TikTok",
+        [
+            ("Caption Options", tiktok.get("caption_options", [])),
+            ("Keywords", tiktok.get("keywords", [])),
+            ("Hashtags", tiktok.get("hashtags", [])),
+            ("Hook Suggestions", tiktok.get("hook_suggestions", [])),
+            ("Discovery Phrases", tiktok.get("discovery_phrases", [])),
+            ("Optimization Note", tiktok.get("optimization_note")),
+        ],
+    )
+
+    instagram = metadata.get("instagram_reels", {})
+    _section(
+        "📌 Instagram Reels",
+        [
+            ("Caption", instagram.get("caption")),
+            ("Hashtags", instagram.get("hashtags", [])),
+            ("Search Keywords", instagram.get("search_keywords", [])),
+            ("Engagement Text", instagram.get("engagement_text")),
+            ("Discovery Phrases", instagram.get("discovery_phrases", [])),
+            ("Optimization Note", instagram.get("optimization_note")),
+        ],
+    )
+
+    facebook = metadata.get("facebook_reels", {})
+    _section(
+        "📌 Facebook Reels",
+        [
+            ("Title / Caption", facebook.get("title_caption")),
+            ("Description", facebook.get("description")),
+            ("Keywords", facebook.get("keywords", [])),
+            ("Hashtags", facebook.get("hashtags", [])),
+            ("Optimization Note", facebook.get("optimization_note")),
+        ],
+    )
+
+    print("\n" + "=" * 50)
+    print("SEO FILE SAVED:")
+    print("output/seo_metadata.json")
+    print("=" * 50)
+
+
 def select_voice_profile(voice_direction):
     """Map the AI-selected personality to a configured Kokoro voice.
 
@@ -2244,11 +2355,15 @@ if render_succeeded:
 
     try:
 
-        generate_seo_metadata(
+        seo_metadata = generate_seo_metadata(
             final
         )
 
         seo_succeeded = True
+
+        print_seo_metadata_summary(
+            seo_metadata
+        )
 
     except Exception as seo_error:
 
