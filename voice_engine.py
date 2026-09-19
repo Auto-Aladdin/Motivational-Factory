@@ -150,179 +150,85 @@ def split_sentences(text):
 # AI VOICE DIRECTOR
 # =====================================================
 
+VOICE_SIGNAL_GROUPS = {
+
+    "stoic_male": [
+        "discipline", "consistent", "consistency", "hard work",
+        "routine", "focus", "focused", "control", "self control",
+        "determination", "determined", "grind", "work ethic", "patience",
+        "stoic", "responsibility", "restraint", "composure", "wisdom",
+        "philosophy", "philosophical", "self mastery", "self-mastery"
+    ],
+
+    "power_male": [
+        "sacrifice", "failure", "failed", "fail", "lost", "loss",
+        "struggle", "struggled", "pain", "painful", "comeback", "quit",
+        "quitting", "setback", "setbacks", "obstacle", "obstacles",
+        "rejected", "rejection", "defeat", "defeated", "warrior",
+        "battle", "pressure", "resistance", "fight", "fighting", "courage",
+        "grit", "adversity"
+    ],
+
+    "warm_female": [
+        "healing", "heal", "past", "forgive", "forgiveness", "hurt",
+        "hurting", "emotional", "emotion", "growth", "growing", "journey",
+        "heart", "heartbreak", "lonely", "loneliness", "memories", "regret",
+        "peace", "acceptance", "letting go", "grief", "compassion",
+        "self worth", "self-worth"
+    ],
+
+    "hopeful_female": [
+        "change", "future", "hope", "hopeful", "believe", "believing",
+        "belief", "possibility", "possibilities", "confidence", "confident",
+        "opportunity", "opportunities", "vision", "goal", "goals", "success",
+        "successful", "inspire", "inspiration", "inspiring", "tomorrow",
+        "potential", "transformation", "transform", "new beginning", "purpose",
+        "becoming", "dream", "dreams", "rebirth"
+    ]
+}
+
+
+def _count_voice_signals(text, signals):
+    lowered = str(text or "").lower()
+    score = 0
+
+    for signal in signals:
+        if re.search(
+            rf"\b{re.escape(signal.lower())}\b",
+            lowered
+        ):
+            score += 1
+
+    return score
+
+
 def select_voice_profile(narration):
 
     """
-    Select the most suitable Kokoro voice profile based
-    on the emotional/topic signals present in narration.
-
-    This is intentionally local and deterministic so it
-    does not add another API request or token cost.
+    Select the strongest matching Kokoro voice profile from the complete
+    narration instead of returning the first matching keyword bucket.
+    This keeps profile selection local, deterministic, and emotion-aware.
     """
 
     text = narration.lower()
 
-    # -------------------------------------------------
-    # Discipline / Stoic / Hard Work
-    # -------------------------------------------------
+    scores = {
+        profile: _count_voice_signals(
+            text,
+            signals
+        )
+        for profile, signals in VOICE_SIGNAL_GROUPS.items()
+    }
 
-    discipline_words = [
+    best_profile = max(
+        scores,
+        key=scores.get
+    )
 
-        "discipline",
-        "consistent",
-        "consistency",
-        "hard work",
-        "sacrifice",
-        "routine",
-        "focus",
-        "focused",
-        "control",
-        "self control",
-        "determination",
-        "determined",
-        "grind",
-        "work ethic",
-        "patience",
-        "stoic",
-        "responsibility"
+    if scores[best_profile] == 0:
+        return DEFAULT_PROFILE
 
-    ]
-
-    if any(
-        word in text
-        for word in discipline_words
-    ):
-
-        return "stoic_male"
-
-
-    # -------------------------------------------------
-    # Failure / Resilience / Comeback
-    # -------------------------------------------------
-
-    resilience_words = [
-
-        "failure",
-        "failed",
-        "fail",
-        "lost",
-        "loss",
-        "struggle",
-        "struggled",
-        "pain",
-        "painful",
-        "comeback",
-        "quit",
-        "quitting",
-        "setback",
-        "setbacks",
-        "obstacle",
-        "obstacles",
-        "rejected",
-        "rejection",
-        "defeat",
-        "defeated",
-        "rise again",
-        "keep going",
-        "keep fighting",
-        "never give up"
-
-    ]
-
-    if any(
-        word in text
-        for word in resilience_words
-    ):
-
-        return "power_male"
-
-
-    # -------------------------------------------------
-    # Healing / Emotional Growth
-    # -------------------------------------------------
-
-    emotional_words = [
-
-        "healing",
-        "heal",
-        "past",
-        "forgive",
-        "forgiveness",
-        "hurt",
-        "hurting",
-        "emotional",
-        "emotion",
-        "change",
-        "growth",
-        "growing",
-        "journey",
-        "heart",
-        "heartbreak",
-        "lonely",
-        "loneliness",
-        "memories",
-        "regret",
-        "peace",
-        "acceptance",
-        "letting go"
-
-    ]
-
-    if any(
-        word in text
-        for word in emotional_words
-    ):
-
-        return "warm_female"
-
-
-    # -------------------------------------------------
-    # Dreams / Hope / Confidence
-    # -------------------------------------------------
-
-    hope_words = [
-
-        "dream",
-        "dreams",
-        "future",
-        "hope",
-        "hopeful",
-        "believe",
-        "believing",
-        "belief",
-        "possibility",
-        "possibilities",
-        "confidence",
-        "confident",
-        "courage",
-        "opportunity",
-        "opportunities",
-        "vision",
-        "goal",
-        "goals",
-        "success",
-        "successful",
-        "inspire",
-        "inspiration",
-        "inspiring",
-        "tomorrow",
-        "potential"
-
-    ]
-
-    if any(
-        word in text
-        for word in hope_words
-    ):
-
-        return "hopeful_female"
-
-
-    # -------------------------------------------------
-    # Safe default
-    # -------------------------------------------------
-
-    return DEFAULT_PROFILE
+    return best_profile
 
 
 # =====================================================
@@ -330,32 +236,74 @@ def select_voice_profile(narration):
 # =====================================================
 
 
-def apply_cinematic_performance(text, index, total):
+def apply_cinematic_performance(text, index, total, profile=DEFAULT_PROFILE):
 
     """
-    Converts normal narration into a more deliberate
-    motivational performance style.
+    Convert narration into a profile-specific performance style so that
+    different emotional stories do not all receive the same punctuation,
+    opening treatment, and dramatic cadence.
     """
 
     text = text.strip()
 
-    replacements = {
-        " but ": "... but ",
-        " because ": "... because ",
-        " however ": "... however ",
-        " the truth is ": "the truth is... ",
-        " remember ": "remember... "
+    profile_rules = {
+        "stoic_male": {
+            "replacements": {
+                " but ": "... but ",
+                " because ": "... because ",
+                " however ": "... however ",
+                " the truth is ": "the truth is... ",
+                " remember ": "remember... "
+            },
+            "leading_pause": True,
+            "trailing_pause": True
+        },
+        "power_male": {
+            "replacements": {
+                " but ": "...but ",
+                " because ": "...because ",
+                " however ": "...however ",
+                " yet ": "...yet ",
+                " until ": "...until "
+            },
+            "leading_pause": False,
+            "trailing_pause": True
+        },
+        "warm_female": {
+            "replacements": {
+                " but ": "...but ",
+                " because ": "...because ",
+                " however ": "...however ",
+                " and then ": "...and then "
+            },
+            "leading_pause": False,
+            "trailing_pause": False
+        },
+        "hopeful_female": {
+            "replacements": {
+                " but ": "...but ",
+                " because ": "...because ",
+                " however ": "...however ",
+                " yet ": "...yet ",
+                " until ": "...until "
+            },
+            "leading_pause": False,
+            "trailing_pause": True
+        }
     }
 
-    for old, new in replacements.items():
+    settings = profile_rules.get(
+        profile,
+        profile_rules[DEFAULT_PROFILE]
+    )
+
+    for old, new in settings["replacements"].items():
         text = text.replace(old, new)
 
-    # Stronger opening hook treatment
-    if index == 0:
+    if index == 0 and settings["leading_pause"]:
         text = "... " + text
 
-    # Final statement treatment
-    if index == total - 1:
+    if index == total - 1 and settings["trailing_pause"]:
         text = text + " ..."
 
     return text
@@ -374,35 +322,46 @@ def get_sentence_pause(profile, index, total):
     return settings.get("sentence_pause", 0.8)
 
 
-def add_emotional_pauses(sentence):
+def add_emotional_pauses(sentence, profile=DEFAULT_PROFILE):
 
     text = sentence
 
-    replacements = {
-
-        " but ":
-            "... but ",
-
-        " because ":
-            "... because ",
-
-        " however ":
-            "... however ",
-
-        " nobody ":
-            "Nobody... ",
-
-        " no one ":
-            "No one... "
-
+    base_replacements = {
+        " nobody ": "Nobody... ",
+        " no one ": "No one... "
     }
 
-    for old, new in replacements.items():
+    for old, new in base_replacements.items():
+        text = text.replace(old, new)
 
-        text = text.replace(
-            old,
-            new
-        )
+    profile_replacements = {
+        "stoic_male": {
+            " but ": "... but ",
+            " because ": "... because ",
+            " however ": "... however "
+        },
+        "power_male": {
+            " but ": "...but ",
+            " because ": "...because ",
+            " however ": "...however ",
+            " yet ": "...yet "
+        },
+        "warm_female": {
+            " but ": "...but ",
+            " because ": "...because "
+        },
+        "hopeful_female": {
+            " but ": "...but ",
+            " because ": "...because ",
+            " yet ": "...yet "
+        }
+    }
+
+    for old, new in profile_replacements.get(
+        profile,
+        profile_replacements[DEFAULT_PROFILE]
+    ).items():
+        text = text.replace(old, new)
 
     return text
 
@@ -536,9 +495,13 @@ def generate_parts(narration, voice_profile=None):
     for index, sentence in enumerate(sentences):
 
         processed = apply_cinematic_performance(
-            add_emotional_pauses(sentence),
+            add_emotional_pauses(
+                sentence,
+                profile
+            ),
             index,
-            len(sentences)
+            len(sentences),
+            profile
         )
 
 
