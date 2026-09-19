@@ -173,11 +173,57 @@ def print_seo_metadata_summary(metadata):
     print("=" * 50)
 
 
-def select_voice_profile(voice_direction):
-    """Map the AI-selected personality to a configured Kokoro voice.
+VOICE_CONTENT_SIGNALS = {
 
-    Falls back safely to the configured default profile when the AI returns
-    an unknown personality or malformed voice metadata.
+    "stoic_male": [
+        "discipline", "self-control", "self control", "restraint",
+        "stoic", "stoicism", "wisdom", "philosophy", "philosophical",
+        "patience", "consistency", "focus", "responsibility", "silence",
+        "composure", "temperance", "endurance", "mastery"
+    ],
+
+    "power_male": [
+        "adversity", "warrior", "battle", "sacrifice", "struggle",
+        "failure", "failed", "defeat", "defeated", "comeback", "pain",
+        "pressure", "resistance", "fight", "fighting", "courage",
+        "rejection", "rejected", "obstacle", "obstacles", "grit"
+    ],
+
+    "warm_female": [
+        "healing", "heal", "grief", "forgive", "forgiveness", "hurt",
+        "heartbreak", "lonely", "loneliness", "regret", "acceptance",
+        "letting go", "self-worth", "self worth", "compassion", "peace",
+        "memories", "loss", "lost"
+    ],
+
+    "hopeful_female": [
+        "hope", "hopeful", "future", "possibility", "possibilities",
+        "transformation", "transform", "rebirth", "new beginning",
+        "purpose", "potential", "believe", "belief", "confidence",
+        "growth", "becoming", "dream", "dreams", "opportunity",
+        "success", "vision"
+    ]
+}
+
+
+def _voice_signal_score(text, signals):
+    score = 0
+    lowered = str(text or "").lower()
+
+    for signal in signals:
+        pattern = rf"\b{re.escape(signal.lower())}\b"
+        if re.search(pattern, lowered):
+            score += 1
+
+    return score
+
+
+def select_voice_profile(voice_direction, content=None):
+    """Select the Kokoro profile using both AI direction and actual content.
+
+    The explicit AI personality remains a strong signal, while the title,
+    theme, hook, narration and creative direction can override a mismatched
+    personality when the emotional content clearly points elsewhere.
     """
     if not isinstance(voice_direction, dict):
         voice_direction = {}
@@ -186,18 +232,56 @@ def select_voice_profile(voice_direction):
         voice_direction.get("personality", "")
     ).strip().lower()
 
-    profile = VOICE_PROFILES.get(
-        personality,
-        VOICE_PROFILES[DEFAULT_VOICE_PROFILE]
+    content = content if isinstance(content, dict) else {}
+    creative = content.get("creative_direction", {})
+    if not isinstance(creative, dict):
+        creative = {}
+
+    content_parts = [
+        content.get("title", ""),
+        content.get("theme", ""),
+        content.get("hook", ""),
+        content.get("narration", ""),
+        creative.get("philosophical_theme", ""),
+        creative.get("emotional_arc", ""),
+        creative.get("ending_style", ""),
+        voice_direction.get("emotion", ""),
+        voice_direction.get("pace", ""),
+        voice_direction.get("intensity", "")
+    ]
+
+    content_text = " ".join(
+        str(part)
+        for part in content_parts
+        if part
     )
 
-    profile_name = (
-        personality
-        if personality in VOICE_PROFILES
-        else DEFAULT_VOICE_PROFILE
+    scores = {
+        profile_name: _voice_signal_score(
+            content_text,
+            signals
+        )
+        for profile_name, signals in VOICE_CONTENT_SIGNALS.items()
+    }
+
+    # Respect the AI-selected profile as a meaningful prior, but let strong
+    # content evidence correct an obvious mismatch.
+    if personality in scores:
+        scores[personality] += 2
+
+    best_profile = max(
+        scores,
+        key=scores.get
     )
 
-    return profile_name, profile
+    if scores[best_profile] <= 0:
+        best_profile = (
+            personality
+            if personality in VOICE_PROFILES
+            else DEFAULT_VOICE_PROFILE
+        )
+
+    return best_profile, VOICE_PROFILES[best_profile]
 
 
 OUTPUT = Path("output")
@@ -311,6 +395,7 @@ def cloudflare_generate(feedback=""):
     for item in history[-10:]:
 
         previous_patterns += (
+            f"\n- Title: {item.get('title', '')}"
             f"\n- Theme: {item.get('theme', '')}"
             f"\n- Style: {item.get('visual_style', '')}"
             f"\n- Archetype: {item.get('philosophical_theme', '')}\n"
@@ -327,60 +412,128 @@ def cloudflare_generate(feedback=""):
                 "content": """
 You are an expert motivational philosophy content director, cinematic short-form producer, and creative strategist.
 
-As an expert motivational philosophy content director, every YouTube video script or content piece must incorporate a new, hooky, and interesting motivational philosophy to ensure compliance with YouTube policies and guidelines. Do not change other content aspects. Focus only on integrating fresh motivational philosophies to prevent repetitive or policy-risk content.
+Your job is to create premium motivational Shorts that feel emotionally lived-in, specific, cinematic, and memorable — not interchangeable AI motivation.
 
-Your mission is to create premium motivational philosophy Shorts, not fictional stories.
-
-Every video must introduce a fresh, hooky, and interesting motivational philosophy.
-Avoid recycled quotes, generic advice lists, repeated templates, and minor variations of previous ideas.
-
-Focus on:
-- stoic principles
-- mindset shifts
-- discipline philosophies
-- resilience concepts
-- universal human insights
-
-The viewer should experience a powerful idea, perspective shift, or realization rather than follow a character journey.
-
-Automation should automate production, not creativity.
-
-You are a professional cinematic motivational
-film director, screenwriter, and creative producer.
-
-Your job is NOT to generate repetitive AI content.
-
-You create original short films for YouTube Shorts.
-
-The final result must feel like a premium
-human-created motivational documentary.
+The content must be IDEA-LED and HUMAN. Do not default to a fictional plot or a generic advice monologue. A short may use a symbolic vignette, a human-scale moment, a philosophical realization, a struggle under pressure, a comeback, a quiet act of discipline, or another original motivational situation. The viewer should feel a real internal shift by the end.
 
 ================================================
 
-MAIN PRINCIPLE:
+CORE CREATIVE RULE:
 
-Automation should automate production,
-not creativity.
+Automation should automate production, not creativity.
 
-Every generation must feel meaningfully different.
+Every generation must feel meaningfully different from the recent history.
+Do not merely swap nouns, locations, or adjectives inside the same script template.
 
-Change:
-
-- story premise
-- emotional journey
-- conflict
+Vary the:
+- motivational philosophy
+- emotional engine
+- conflict or tension
+- opening hook type
+- narrative shape
 - symbolism
 - environment
-- camera language
-- visual identity
-- ending lesson
+- visual language
+- emotional ending
+
+================================================
+
+MOTIVATIONAL STYLE LIBRARY:
+
+Choose ONE dominant style that genuinely fits the subject, and let the writing reflect it naturally. Do not force the same style repeatedly.
+
+Possible styles include:
+- Stoic paradox or wisdom
+- Warrior crucible / resilience under pressure
+- Quiet discipline / self-mastery
+- Comeback after failure or loss
+- Emotional healing / forgiveness / letting go
+- Courage under uncertainty
+- Sacrifice and delayed reward
+- Identity transformation / becoming someone new
+- Patience, time, and endurance
+- Purpose, meaning, and responsibility
+
+These are creative lenses, not templates. Invent a fresh philosophy or perspective inside the selected lens.
+
+================================================
+
+NARRATIVE SHAPE:
+
+Use the structure that best suits the idea. Do not use the same structure for every Short.
+
+Strong options include:
+- contradiction -> tension -> reframe
+- vivid moment -> pressure -> realization
+- failure/wound -> meaning -> changed choice
+- temptation/easy path -> resistance -> earned insight
+- question -> escalating evidence -> answer
+- apparent weakness -> hidden strength -> perspective shift
+- loss -> reflection -> new principle
+
+The viewer should feel forward movement even when the piece is philosophical rather than plot-driven.
+
+================================================
+
+HOOK REQUIREMENTS:
+
+The opening must earn attention immediately.
+The first sentence should create tension, curiosity, emotional recognition, or a surprising idea.
+
+Rotate hook approaches such as:
+- blunt truth
+- paradox
+- challenging question
+- specific image or moment
+- unexpected observation
+- emotional confession
+- high-stakes challenge
+
+Do NOT begin with tired openings such as:
+- "In life..."
+- "Sometimes..."
+- "Most people..."
+- "You need to..."
+- "Never give up..."
+- "The truth is..." as a generic opener
+- "One day..."
+- "There was a man..."
+
+Do not explain the entire lesson in the opening. Create an unanswered tension that the rest of the Short resolves.
+
+================================================
+
+EMOTIONAL ARC:
+
+Build emotional movement rather than stacking motivational statements.
+
+Aim for a progression such as:
+attention -> tension -> emotional pressure -> realization -> earned resolve.
+
+Not every Short must be dark or dramatic. Quiet reflection, restrained strength, hope, grief, courage, or controlled intensity can be powerful when the emotional movement is genuine.
+
+Use concrete human stakes, choices, consequences, sensations, or symbolic details where appropriate.
+
+================================================
+
+ENDING REQUIREMENTS:
+
+The final line should feel earned by what came before it.
+It should reframe the opening, crystallize the philosophy, or leave the viewer with a concise realization.
+
+Avoid endings that are interchangeable with any other motivation video, such as:
+- "Keep going."
+- "Never give up."
+- "You are stronger than you think."
+- "Believe in yourself."
+
+A memorable ending is a specific insight, not a generic slogan.
 
 ================================================
 
 ORIGINALITY RULES:
 
 Never use:
-
 - famous quotes
 - celebrity speeches
 - copied movie scenes
@@ -389,224 +542,91 @@ Never use:
 
 Create original concepts.
 
+Avoid:
+- recycled "rise from the ashes" wording
+- generic gym motivation
+- generic businessman imagery
+- empty productivity advice
+- listicles disguised as narration
+- repeated "darkness to light" arcs unless the actual idea demands it
+
 ================================================
 
 NARRATION REQUIREMENTS:
 
-Length:
+Target approximately 90-145 words, while remaining natural and complete.
 
-70-150 words.
+The narration must be:
+- immediately interesting
+- conversational enough to be spoken aloud
+- emotionally specific
+- concise
+- cinematic without sounding like an essay
 
-Must include:
-
-1. Strong hook
-2. Emotional tension
-3. Transformation
-4. Final memorable lesson
-
-Do NOT create:
-
-- quote collections
-- generic advice lists
-- motivational slogans
-
-Write like a movie narrator.
+The narration should contain a strong opening, meaningful tension or emotional movement, a genuine perspective shift, and a memorable final line.
 
 ================================================
 
 VISUAL PHILOSOPHY:
 
-Do NOT create literal stock footage scenes.
+Do not create literal stock-footage filler.
+Do not force a random person to act out every sentence.
 
-Do NOT force a random person to act the narration.
+Use symbolic cinematic storytelling and concrete actions that reinforce the exact narration beat.
 
-Instead:
-
-Use symbolic cinematic storytelling.
-
-The visual must communicate the
-specific story beat and emotion.
-
-Every scene must visually correspond
-to what is happening in the narration.
-
-If the narration describes:
-
-- opening a door -> show the door being opened
-- searching -> show searching
-- sacrifice -> show an appropriate sacrifice
-- isolation -> show isolation through composition
-- discovery -> show the discovery
-- struggle -> show the struggle
-
-Do NOT simply place the protagonist
-standing in front of the camera.
-
-================================================
-
-APPROVED CINEMATIC WORLDS:
-
-STOIC PHILOSOPHY:
-
-- ancient Roman architecture
-- marble statues
-- forgotten libraries
-- philosophical manuscripts
-- candlelit chambers
-- marble halls
-- ancient ruins
-
-NATURE:
-
-- mountains
-- storms
-- oceans
-- forests
-- deserts
-- sunrise landscapes
-- frozen landscapes
-
-SYMBOLISM:
-
-- broken chains
-- old keys
-- ancient books
-- hourglass
-- sword
-- empty roads
-- doors opening
-- burning candles
-- reflections
-
-CINEMATIC ENVIRONMENTS:
-
-- castles
-- temples
-- bridges
-- dramatic corridors
-- historical architecture
-- luxury documentary locations
-
-================================================
-
-AVOID:
-
-- random person standing
-- person simply facing camera
-- influencer lifestyle footage
-- generic businessman clips
-- fake crying scenes
-- repetitive gym footage
-- phone scrolling
-- laptop typing
-- generic office scenes
-
-================================================
-
-VISUAL QUALITY:
-
-Every scene requires:
-
-- meaningful subject
-- specific story action
-- emotion
+A visual can communicate an idea through:
+- action
+- object
 - environment
-- camera movement
-- composition
-- lighting
+- contrast
+- scale
+- movement
+- isolation
+- repetition
+- transformation
 
-The action must be visually connected
-to the corresponding narration line.
-
-Think:
-
-Netflix documentary +
-luxury philosophy channel +
-cinematic trailer.
+Every scene must have a distinct purpose.
 
 ================================================
 
 VOICE DIRECTION:
 
-Select the most suitable motivational narration profile.
+Select the profile that best matches the finished narration, not merely the broad topic.
 
 Available profiles:
 
 stoic_male:
 Voice: am_adam
-Use for philosophy, discipline, wisdom, self-control, and Stoic themes.
+Use for restrained philosophy, discipline, self-control, wisdom, patience, composure, and controlled authority.
 
 power_male:
 Voice: am_michael
-Use for resilience, sacrifice, warrior mindset, intensity, and achievement.
+Use for adversity, sacrifice, warrior mindset, pressure, confrontation, comeback, resilience, and high-intensity determination.
 
 warm_female:
 Voice: af_bella
-Use for emotional reflection, healing, and personal growth.
+Use for healing, grief, forgiveness, loneliness, emotional reflection, acceptance, and intimate human connection.
 
 hopeful_female:
 Voice: af_sarah
-Use for transformation, hope, and positive change.
+Use for transformation, renewed purpose, possibility, courage, confidence, hope, and positive change.
 
 Never imitate a real person.
 
-Control:
-- pacing
+VOICE DIRECTION should describe the actual performance required:
+- pace
 - pauses
 - emotional delivery
 - intensity
-- emphasis on important philosophical phrases
-
-The narration should sound like premium motivational Shorts content.
-
-
-
-Choose delivery based on emotion.
-
-Discipline:
-
-deep,
-controlled,
-authoritative.
-
-Healing:
-
-warm,
-reflective,
-empathetic.
-
-Transformation:
-
-powerful,
-cinematic,
-determined.
+- emphasis on the key philosophical realization
 
 ================================================
 
 IMPORTANT:
 
-Every scene must have a distinct visual purpose.
-
-Do not repeat the same composition
-through all six scenes.
-
-Do not make the main character appear
-front-and-center in every scene.
-
-Use:
-
-- wide shots
-- close-ups
-- detail shots
-- environmental shots
-- over-the-shoulder shots
-- silhouettes
-- hands
-- objects
-- architectural framing
-- symbolic compositions
-
-when appropriate.
+Every scene must visually progress the emotional meaning of the narration.
+Do not repeat the same composition across scenes.
+Use wide shots, close-ups, detail shots, environmental shots, silhouettes, hands, objects, architecture, reflections, and other cinematic compositions when appropriate.
 
 Return ONLY valid JSON.
 
@@ -713,16 +733,21 @@ Return exactly:
 
 Requirements:
 
+- Create ONE original motivational Short using the best-fitting style and narrative shape for this idea.
 - Create 5-8 cinematic visual moments. Do not force unnecessary scene changes.
-- Narration 70-150 words.
-- Every scene must feel cinematic.
-- Every scene must correspond to its narration beat.
+- Target approximately 90-145 narration words.
+- Make the first sentence immediately compelling without using a generic motivation opener.
+- Build real emotional or philosophical progression rather than a chain of slogans.
+- Delay the full lesson until the Short has created enough tension or curiosity to earn the payoff.
+- Make the final line specific, memorable, and connected to the opening idea.
+- Ensure the selected voice personality, pace, emotion, and intensity match the actual narration.
+- Every scene must correspond to a specific narration beat.
 - Every scene must contain meaningful action or symbolic visual progression.
 - Do not put the main character standing in front in every scene.
 - Do not repeat the same visual composition.
 - Use symbolic visuals where appropriate.
-- Avoid repeated ideas from previous generations.
-- Create original storytelling.
+- Avoid repeated ideas, arcs, hook wording, and endings from previous generations.
+- Create original concepts rather than superficial variations of common motivation templates.
 - quality_score may initially contain 0 values because the external quality gate will evaluate it later.
 """
 
@@ -1178,28 +1203,37 @@ Evaluate a generated motivational YouTube Short.
 
 You are NOT rewriting the story.
 
-You are judging whether it is creative enough
-to continue into expensive production.
+You are judging whether it is creative, emotionally compelling, and specific enough to continue into expensive production.
 
 Score each category from 1 to 10.
 
 originality:
-Does the concept feel fresh and meaningfully
-different from generic AI motivation?
+Does the concept, hook, motivational philosophy, and narrative lens feel genuinely fresh rather than like a reworded motivation template?
 
 philosophical_depth:
-Does the story contain a believable emotional
-journey rather than generic motivational advice?
+Does the narration create a real internal shift through tension, emotional specificity, reflection, or consequence? Is the final insight earned by the preceding lines rather than generic advice?
 
 visual_strength:
-Do the scenes create strong cinematic imagery,
-specific actions, environments and compositions?
+Do the scenes create strong cinematic imagery, specific actions, environments and compositions that reinforce the emotional meaning of each narration beat?
 
 repetition_risk:
-How likely is the short to feel repetitive,
-generic or interchangeable?
+How likely is the short to feel repetitive, generic or interchangeable with another motivational Short? Consider repeated opening patterns, predictable emotional arcs, generic phrases, interchangeable endings, and overused visual premises.
 
-Important:
+Pay special attention to:
+
+- The first sentence: it must create immediate curiosity, tension, recognition, or surprise.
+- Emotional progression: the piece should move forward instead of stacking slogans.
+- The payoff: the ending should deliver a specific, memorable realization connected to the opening.
+- Specificity: concrete human stakes or symbolic details are stronger than vague encouragement.
+- Variety: do not reward a familiar format merely because the wording is polished.
+
+Automatic warning signs:
+
+- Generic openers such as "In life...", "Sometimes...", "Most people...", or "You need to..."
+- Generic closers such as "Never give up" or "Keep going"
+- A lesson stated before the viewer has a reason to care
+- Recycled "darkness to light" or "fall then rise" structure without a fresh philosophy
+- Narration that could be swapped into another Short with almost no changes
 
 A high repetition_risk is BAD.
 
@@ -2084,7 +2118,8 @@ final["hashtags"] = final["seo"]["hashtags"]
 
 
 voice_profile_name, selected_voice_profile = select_voice_profile(
-    final.get("voice_direction", {})
+    final.get("voice_direction", {}),
+    final
 )
 
 selected_voice = selected_voice_profile.get(
