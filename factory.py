@@ -22,7 +22,7 @@ VOICE_PROFILES = {
 
     "stoic_male": {
         "voice": "am_adam",
-        "description": "Deep philosophical authority",
+        "description": "Deep philosophical male authority for stoic, reflective, healing, and thoughtful motivation",
         "pace": "slow controlled delivery",
         "emotion": "calm conviction",
         "intensity": "medium",
@@ -31,32 +31,15 @@ VOICE_PROFILES = {
 
     "power_male": {
         "voice": "am_michael",
-        "description": "Powerful cinematic motivational narration",
+        "description": "Powerful cinematic male narration for adversity, comeback, courage, sacrifice, and high-intensity motivation",
         "pace": "controlled powerful delivery",
         "emotion": "determined intensity",
         "intensity": "high",
         "pause_style": "dramatic emphasis on key moments"
-    },
-
-    "warm_female": {
-        "voice": "af_bella",
-        "description": "Warm reflective inspirational narration",
-        "pace": "natural expressive delivery",
-        "emotion": "empathetic",
-        "intensity": "medium",
-        "pause_style": "gentle reflective pauses"
-    },
-
-    "hopeful_female": {
-        "voice": "af_sarah",
-        "description": "Hopeful transformation-focused narration",
-        "pace": "uplifting cinematic delivery",
-        "emotion": "optimistic",
-        "intensity": "medium",
-        "pause_style": "positive emotional pauses"
     }
 
 }
+
 
 
 DEFAULT_VOICE_PROFILE = "stoic_male"
@@ -179,31 +162,28 @@ VOICE_CONTENT_SIGNALS = {
         "discipline", "self-control", "self control", "restraint",
         "stoic", "stoicism", "wisdom", "philosophy", "philosophical",
         "patience", "consistency", "focus", "responsibility", "silence",
-        "composure", "temperance", "endurance", "mastery"
+        "composure", "temperance", "endurance", "mastery", "healing",
+        "heal", "forgive", "forgiveness", "hurt", "heartbreak",
+        "lonely", "loneliness", "regret", "acceptance", "letting go",
+        "self-worth", "self worth", "compassion", "peace", "memories",
+        "hope", "hopeful", "future", "possibility", "possibilities",
+        "transformation", "transform", "rebirth", "new beginning",
+        "purpose", "potential", "believe", "belief", "confidence",
+        "growth", "becoming", "dream", "dreams", "opportunity",
+        "success", "vision"
     ],
 
     "power_male": [
         "adversity", "warrior", "battle", "sacrifice", "struggle",
         "failure", "failed", "defeat", "defeated", "comeback", "pain",
         "pressure", "resistance", "fight", "fighting", "courage",
-        "rejection", "rejected", "obstacle", "obstacles", "grit"
-    ],
-
-    "warm_female": [
-        "healing", "heal", "grief", "forgive", "forgiveness", "hurt",
-        "heartbreak", "lonely", "loneliness", "regret", "acceptance",
-        "letting go", "self-worth", "self worth", "compassion", "peace",
-        "memories", "loss", "lost"
-    ],
-
-    "hopeful_female": [
-        "hope", "hopeful", "future", "possibility", "possibilities",
-        "transformation", "transform", "rebirth", "new beginning",
-        "purpose", "potential", "believe", "belief", "confidence",
-        "growth", "becoming", "dream", "dreams", "opportunity",
-        "success", "vision"
+        "rejection", "rejected", "obstacle", "obstacles", "grit",
+        "setback", "setbacks", "quit", "quitting", "hardship",
+        "suffering", "conquer", "resilience", "resilient", "strength",
+        "strong", "determined", "determination"
     ]
 }
+
 
 
 def _voice_signal_score(text, signals):
@@ -438,56 +418,110 @@ Vary the:
 
 ================================================
 
-MOTIVATIONAL STYLE LIBRARY:
+CONTENT CONCEPT ENGINE:
 
-Choose ONE dominant style that genuinely fits the subject, and let the writing reflect it naturally. Do not force the same style repeatedly.
+Do NOT begin by asking, "What motivational story should happen?"
+Begin by asking, "What human tension, contradiction, fear, desire, or realization is worth experiencing in under a minute?"
 
-Possible styles include:
-- Stoic paradox or wisdom
-- Warrior crucible / resilience under pressure
-- Quiet discipline / self-mastery
-- Comeback after failure or loss
-- Emotional healing / forgiveness / letting go
-- Courage under uncertainty
-- Sacrifice and delayed reward
-- Identity transformation / becoming someone new
-- Patience, time, and endurance
-- Purpose, meaning, and responsibility
+Every Short must be built around ONE specific central idea that can be stated as a sharp thesis, question, contradiction, or emotional truth. The concept must be strong enough to remain interesting even if all visual spectacle is removed.
 
-These are creative lenses, not templates. Invent a fresh philosophy or perspective inside the selected lens.
+IMPORTANT DIVERSITY RULE:
+Not every Short should be a story about a person. Deliberately diversify the concept form. Choose the form that best fits the central idea, and avoid repeating the same form across recent generations. Suitable forms include:
+- philosophical paradox or counterintuitive truth
+- direct inner conflict / internal conversation
+- thought experiment or hypothetical choice
+- observational life insight built around an overlooked behavior
+- symbolic object, environment, or ritual used as a metaphor
+- micro-vignette centered on a single decisive moment
+- reversal of a common motivational belief
+- question that the narration gradually answers
+- before/after identity contrast without a literal character plot
+- quiet confession or emotionally honest realization
+- sacrifice/trade-off analysis
+- time, regret, mortality, or consequence perspective
+
+Do not select a concept form merely because it is easy to visualize. Select it because it creates the strongest emotional or intellectual experience.
 
 ================================================
 
-NARRATIVE SHAPE:
+MOTIVATIONAL THEME LIBRARY:
 
-Use the structure that best suits the idea. Do not use the same structure for every Short.
+Choose ONE primary theme and, when useful, ONE supporting theme. Possible themes include:
+- discipline vs comfort
+- fear vs action
+- self-doubt vs self-trust
+- loneliness vs inner strength
+- consistency vs intensity
+- purpose vs distraction
+- failure vs identity
+- courage under uncertainty
+- delayed success vs impatience
+- identity vs old habits
+- ambition vs comfort
+- mental strength under pressure
+- time vs procrastination
+- regret vs present action
+- focus vs noise
+- sacrifice vs immediate pleasure
+- resilience after disappointment
+- personal growth through discomfort
+- inner conflict and self-command
+- perseverance without applause
+- meaning, responsibility, and philosophical acceptance
 
-Strong options include:
-- contradiction -> tension -> reframe
-- vivid moment -> pressure -> realization
-- failure/wound -> meaning -> changed choice
-- temptation/easy path -> resistance -> earned insight
-- question -> escalating evidence -> answer
-- apparent weakness -> hidden strength -> perspective shift
-- loss -> reflection -> new principle
+The theme is NOT the story. It is the underlying human problem or question. Make the actual concept specific.
 
-The viewer should feel forward movement even when the piece is philosophical rather than plot-driven.
+================================================
+
+NARRATIVE / RETENTION ARCHITECTURE:
+
+Do not use one universal beginning-middle-end template. Select the architecture that naturally creates forward motion for the chosen idea. Rotate among structures such as:
+- paradox -> unanswered question -> evidence -> reframe
+- provocative claim -> resistance -> deeper reason -> realization
+- concrete moment -> hidden meaning -> emotional turn -> payoff
+- temptation -> choice -> consequence -> principle
+- assumption -> contradiction -> discovery -> new perspective
+- question -> escalating possibilities -> reveal -> emotional resolution
+- quiet observation -> personal recognition -> wider truth -> final line
+- wound or failure -> unexpected meaning -> changed interpretation -> earned resolve
+- countdown / limited-time premise -> pressure -> choice -> insight
+- two opposing beliefs -> tension between them -> synthesis
+- repeated image or phrase with evolving meaning -> final transformation
+
+Within every structure, create FORWARD PRESSURE. Each section should do at least one of the following:
+- answer a small question while opening a more important one
+- raise the emotional stakes
+- reveal a contradiction
+- add a new consequence
+- change the viewer's interpretation of what came before
+- narrow toward a specific realization
+
+Do not front-load the moral. The viewer should understand the subject early, but the deepest meaning should unfold progressively.
+
+For a 90-145 word narration, roughly use:
+- opening: establish the unresolved tension immediately
+- early-middle: deepen the problem and create a meaningful question
+- late-middle: introduce the key realization, contrast, or reversal
+- ending: compress the insight into a specific earned payoff
+
+These are pacing targets, not a rigid formula.
 
 ================================================
 
 HOOK REQUIREMENTS:
 
-The opening must earn attention immediately.
-The first sentence should create tension, curiosity, emotional recognition, or a surprising idea.
+The opening sentence must create an immediate reason to continue watching. It should make the viewer feel one of: "Wait, what?", "That is me", "I never thought about it that way", "What happens next?", or "I need the answer."
 
-Rotate hook approaches such as:
-- blunt truth
-- paradox
-- challenging question
-- specific image or moment
-- unexpected observation
-- emotional confession
-- high-stakes challenge
+Prefer hooks based on:
+- a surprising contradiction
+- a hard question
+- a precise emotional truth
+- a high-stakes choice
+- an unexpected consequence
+- an image or moment with unexplained significance
+- a statement that creates a missing piece the narration must resolve
+
+The hook must be specific to THIS Short. It should not be a generic motivational slogan with the topic substituted in.
 
 Do NOT begin with tired openings such as:
 - "In life..."
@@ -499,35 +533,54 @@ Do NOT begin with tired openings such as:
 - "One day..."
 - "There was a man..."
 
-Do not explain the entire lesson in the opening. Create an unanswered tension that the rest of the Short resolves.
+Do not answer the hook in the same sentence. Create a question, tension, contradiction, or missing explanation that the rest of the Short earns the right to resolve.
 
 ================================================
 
-EMOTIONAL ARC:
+VALUE AND EMOTIONAL PROGRESSION:
 
-Build emotional movement rather than stacking motivational statements.
+Every 1-2 narration beats should add new meaning. Do not fill time with restatements of the same motivational point.
 
-Aim for a progression such as:
-attention -> tension -> emotional pressure -> realization -> earned resolve.
+The Short should contain several meaningful turns such as:
+- recognition: "this is the real problem"
+- escalation: "and it costs more than you thought"
+- contradiction: "the obvious solution is actually the trap"
+- realization: "the real battle is somewhere else"
+- perspective shift: "the goal is not what you assumed"
+- choice: "here is what changes when you see it clearly"
 
-Not every Short must be dark or dramatic. Quiet reflection, restrained strength, hope, grief, courage, or controlled intensity can be powerful when the emotional movement is genuine.
+Use concrete stakes, sensations, decisions, trade-offs, internal conflict, or symbolic detail whenever they make the idea more human.
 
-Use concrete human stakes, choices, consequences, sensations, or symbolic details where appropriate.
+Avoid chains of commands, abstract affirmations, or three consecutive sentences that merely say "you can do it" in different words.
 
 ================================================
 
-ENDING REQUIREMENTS:
+PAYOFF / FINAL LINE REQUIREMENTS:
 
-The final line should feel earned by what came before it.
-It should reframe the opening, crystallize the philosophy, or leave the viewer with a concise realization.
+The final line must pay off the central tension. It should feel like the missing piece has finally clicked into place.
 
-Avoid endings that are interchangeable with any other motivation video, such as:
+Strong payoff types include:
+- a reversal of the opening belief
+- a precise redefinition of the problem
+- a consequence the viewer did not initially see
+- a compact philosophical truth earned by the journey
+- a line that makes the opening mean something different on rewatch
+
+The final line should be quotable because it is specific and true to the concept, not because it sounds like a generic slogan.
+
+Avoid interchangeable endings such as:
 - "Keep going."
 - "Never give up."
 - "You are stronger than you think."
 - "Believe in yourself."
+- "Your time will come."
+- "The best is yet to come."
 
-A memorable ending is a specific insight, not a generic slogan.
+================================================
+
+REWATCHABILITY:
+
+Whenever natural, include a line, contrast, or image whose meaning becomes clearer after hearing the payoff. Aim for a satisfying second listen, not deliberate confusion. The viewer should be able to understand the piece on the first watch while discovering an additional layer on replay.
 
 ================================================
 
@@ -597,19 +650,11 @@ Available profiles:
 
 stoic_male:
 Voice: am_adam
-Use for restrained philosophy, discipline, self-control, wisdom, patience, composure, and controlled authority.
+Use for stoic philosophy, discipline, self-mastery, healing, grief, forgiveness, reflection, hope, purpose, patience, composure, and controlled emotional delivery.
 
 power_male:
 Voice: am_michael
-Use for adversity, sacrifice, warrior mindset, pressure, confrontation, comeback, resilience, and high-intensity determination.
-
-warm_female:
-Voice: af_bella
-Use for healing, grief, forgiveness, loneliness, emotional reflection, acceptance, and intimate human connection.
-
-hopeful_female:
-Voice: af_sarah
-Use for transformation, renewed purpose, possibility, courage, confidence, hope, and positive change.
+Use for adversity, sacrifice, warrior mindset, pressure, confrontation, comeback, resilience, courage, and high-intensity determination.
 
 Never imitate a real person.
 
@@ -652,25 +697,22 @@ Previous validation feedback:
 
 Choose a unique combination.
 
-Motivational philosophy direction:
+IMPORTANT: Do not default to a person-centered success story. First choose the strongest concept form for the actual idea, then choose the theme, tension, emotional movement, and visual expression. A philosophical observation, inner conflict, thought experiment, symbolic ritual, contradiction, or single decisive moment may be stronger than a literal character journey.
 
-- discipline journey
-- failure transformation
-- overcoming fear
-- self discovery
-- rebuilding after loss
-- wisdom reflection
-- sacrifice and achievement
-- courage against uncertainty
+Concept-selection guidance:
+- Start from one sharp human tension, contradiction, fear, desire, trade-off, or realization.
+- Choose ONE primary motivational theme from the system library and make it specific rather than broad.
+- Choose ONE concept form that has not been overused in the recent generation patterns.
+- Choose a narrative architecture that naturally creates unanswered questions and progressive meaning.
+- Make the ending solve or transform the opening tension rather than append advice.
+- Ensure the visual concept can support the exact idea without forcing generic people into every scene.
 
-Philosophical progression:
-
-- darkness to light
-- doubt to confidence
-- chaos to discipline
-- failure to growth
-- weakness to strength
-- confusion to purpose
+Before writing the narration, mentally answer these questions:
+1. Why would someone care about this idea in the first two seconds?
+2. What question or tension will keep them listening?
+3. What new information or perspective arrives in the middle?
+4. What changes in the viewer's understanding by the end?
+5. What final line could only belong to THIS concept?
 
 Return exactly:
 
@@ -733,21 +775,25 @@ Return exactly:
 
 Requirements:
 
-- Create ONE original motivational Short using the best-fitting style and narrative shape for this idea.
+- Create ONE original motivational Short using the strongest concept for the chosen human tension, not simply the easiest story to write.
+- The Short may be person-centered, but it must NOT default to a character story unless a specific event or perspective genuinely benefits from one.
 - Create 5-8 cinematic visual moments. Do not force unnecessary scene changes.
 - Target approximately 90-145 narration words.
-- Make the first sentence immediately compelling without using a generic motivation opener.
-- Build real emotional or philosophical progression rather than a chain of slogans.
-- Delay the full lesson until the Short has created enough tension or curiosity to earn the payoff.
-- Make the final line specific, memorable, and connected to the opening idea.
-- Ensure the selected voice personality, pace, emotion, and intensity match the actual narration.
-- Every scene must correspond to a specific narration beat.
-- Every scene must contain meaningful action or symbolic visual progression.
-- Do not put the main character standing in front in every scene.
+- Make the first sentence immediately compelling, specific to the concept, and impossible to swap into a different motivational Short unchanged.
+- Within the first few beats, establish an unresolved question, contradiction, emotional stake, or consequence that gives the viewer a reason to stay.
+- Make every subsequent beat introduce new information, a stronger consequence, a perspective shift, or a deeper question. Do not repeat the same motivational point in different words.
+- Do not reveal the complete lesson at the beginning. Let the meaning unfold and make the payoff earn its place.
+- Give the final line a specific job: resolve the central tension, reframe the opening, or crystallize the exact lesson discovered by the Short.
+- Include at least one line, contrast, realization, or image that feels worth remembering or replaying when appropriate.
+- Use original, audience-relevant concepts around discipline, fear, self-doubt, resilience, loneliness, consistency, purpose, failure, courage, delayed success, identity, ambition, comfort, mental strength, time, regret, focus, sacrifice, personal growth, inner conflict, perseverance, or philosophical perspective when the topic naturally supports them.
+- Avoid generic positivity, chained slogans, recycled "fall then rise" stories, and advice that could belong to any motivational channel.
+- Ensure the selected voice personality, pace, emotion, and intensity match the finished narration.
+- Every scene must correspond to a specific narration beat and advance the idea rather than merely illustrate it literally.
+- Every scene must contain meaningful action, symbolic change, environmental progression, or a deliberate visual contrast.
+- Do not put the same person standing in front of the camera in every scene.
 - Do not repeat the same visual composition.
-- Use symbolic visuals where appropriate.
-- Avoid repeated ideas, arcs, hook wording, and endings from previous generations.
-- Create original concepts rather than superficial variations of common motivation templates.
+- Use symbolic visuals, objects, spaces, movement, isolation, scale, repetition, and transformation when they strengthen the exact concept.
+- Avoid repeating the same concept form, emotional arc, hook wording, or ending logic from previous generations.
 - quality_score may initially contain 0 values because the external quality gate will evaluate it later.
 """
 
@@ -1221,19 +1267,27 @@ How likely is the short to feel repetitive, generic or interchangeable with anot
 
 Pay special attention to:
 
-- The first sentence: it must create immediate curiosity, tension, recognition, or surprise.
-- Emotional progression: the piece should move forward instead of stacking slogans.
-- The payoff: the ending should deliver a specific, memorable realization connected to the opening.
-- Specificity: concrete human stakes or symbolic details are stronger than vague encouragement.
-- Variety: do not reward a familiar format merely because the wording is polished.
+- Concept strength: Is there one compelling human tension, contradiction, question, trade-off, or realization strong enough to carry the entire Short?
+- The first sentence: does it create an immediate reason to continue without giving away the entire lesson?
+- Curiosity architecture: is there a meaningful unanswered question, contradiction, or consequence that the narration resolves progressively?
+- Emotional/intellectual progression: does each section add new meaning, pressure, evidence, contrast, or perspective instead of restating the same point?
+- Specificity: concrete human stakes, precise observations, trade-offs, sensations, or symbolic details are stronger than vague encouragement.
+- Payoff: does the ending make the opening more meaningful in retrospect and deliver a specific realization that feels earned?
+- Rewatchability: is there a line, contrast, or idea that becomes more meaningful after the payoff without becoming confusing?
+- Concept diversity: does this feel like a genuinely different motivational experience rather than another person-overcomes-adversity story or another variation of the same arc?
+- Visual-semantic coherence: do the scenes reinforce the exact emotional and philosophical progression instead of decorating a generic speech?
 
 Automatic warning signs:
 
 - Generic openers such as "In life...", "Sometimes...", "Most people...", or "You need to..."
 - Generic closers such as "Never give up" or "Keep going"
 - A lesson stated before the viewer has a reason to care
+- No clear unanswered tension after the opening
+- A middle section that merely repeats the hook or thesis in new wording
 - Recycled "darkness to light" or "fall then rise" structure without a fresh philosophy
+- Generic person-centered struggle story used when an idea, contradiction, observation, or symbolic concept would be stronger
 - Narration that could be swapped into another Short with almost no changes
+- Final line that could close almost any motivational video
 
 A high repetition_risk is BAD.
 
@@ -2064,11 +2118,14 @@ for attempt in range(5):
                 f"{quality.get('repetition_risk', 10)}/10. "
 
                 "Create a substantially different "
-                "cinematic concept. Avoid generic "
-                "motivation, repeated visual structures, "
-                "and interchangeable scenes. "
-                "Make every scene directly support "
-                "its narration beat."
+                "cinematic concept. Use a different "
+                "concept form, central tension, emotional "
+                "progression, hook logic, and payoff. "
+                "Avoid generic motivation, repeated "
+                "visual structures, person-centered plots "
+                "by default, and interchangeable scenes. "
+                "Make every narration beat add new meaning "
+                "and make the final line specifically earned."
             )
 
             print(
