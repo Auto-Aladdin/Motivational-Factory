@@ -75,6 +75,10 @@ CAPTION_SAFE_TOP = 720
 CAPTION_SAFE_BOTTOM = 1200
 CAPTION_CENTER_Y = (CAPTION_SAFE_TOP + CAPTION_SAFE_BOTTOM) / 2
 CAPTION_POP_DURATION = 0.11
+CAPTION_BACKDROP_PADDING_X = 34
+CAPTION_BACKDROP_PADDING_Y = 22
+CAPTION_BACKDROP_OPACITY = 0.16
+CAPTION_BACKDROP_HALO_OPACITY = 0.055
 
 # Existing caption-plan colors are preserved.
 DEFAULT_NORMAL = "#FFFFFF"
@@ -221,7 +225,7 @@ def cinematic_grade(clip):
         (WIDTH, HEIGHT),
         color=(0, 0, 0),
         duration=clip.duration,
-    ).with_opacity(0.42)
+    ).with_opacity(0.26)
 
     return CompositeVideoClip([clip, overlay])
 
@@ -451,8 +455,6 @@ def choose_caption_theme(narration, caption_plan=None, brief=None):
         voice_map = {
             "stoic_male": "stoic",
             "power_male": "warrior",
-            "warm_female": "cinematic",
-            "hopeful_female": "calm",
         }
         selected = voice_map.get(voice_personality)
         if selected:
@@ -1197,6 +1199,45 @@ def make_caption_group(group, font, theme="cinematic"):
     # a future word before its own word-level timestamp.
     display_end = max(group_end, float(group.get("display_end", group_end)))
 
+    # Subtle layered caption treatment improves readability while preserving
+    # the underlying footage/image. The wider low-opacity layer acts as a soft
+    # atmospheric halo; the tighter layer creates the readable contrast zone.
+    backdrop_width = min(
+        WIDTH - 96,
+        max(line_widths) + (CAPTION_BACKDROP_PADDING_X * 2)
+    )
+    backdrop_height = total_height + (CAPTION_BACKDROP_PADDING_Y * 2)
+    backdrop_x = CAPTION_CENTER_X - backdrop_width / 2
+    backdrop_y = top - CAPTION_BACKDROP_PADDING_Y
+    backdrop_duration = max(0.01, display_end - group_start)
+
+    halo_width = min(WIDTH - 56, backdrop_width + 72)
+    halo_height = backdrop_height + 52
+    halo = (
+        ColorClip(
+            (halo_width, halo_height),
+            color=(0, 0, 0),
+            duration=backdrop_duration,
+        )
+        .with_opacity(CAPTION_BACKDROP_HALO_OPACITY)
+        .with_position((
+            CAPTION_CENTER_X - halo_width / 2,
+            backdrop_y - 26,
+        ))
+        .with_start(group_start)
+    )
+    plate = (
+        ColorClip(
+            (backdrop_width, backdrop_height),
+            color=(0, 0, 0),
+            duration=backdrop_duration,
+        )
+        .with_opacity(CAPTION_BACKDROP_OPACITY)
+        .with_position((backdrop_x, backdrop_y))
+        .with_start(group_start)
+    )
+    clips.extend([halo, plate])
+
     # Do not let more than two keyword accents dominate a single caption group.
     accent_count = 0
     for index, word in enumerate(words):
@@ -1553,7 +1594,6 @@ def _safe_float(value, default=0.0):
 
 SHORT_FORMAT_HISTORY_GROUPS = {
     "historical",
-    "warrior",
     "ancient",
     "stoic",
     "classical",
@@ -1580,8 +1620,14 @@ SHORT_FORMAT_STILL_WORDS = {
     "sculpture", "statue", "painting", "classical", "roman", "greek",
     "philosopher", "historical", "leader", "leaders", "wisdom",
     "stoic", "stoicism", "civilization", "symbolic", "symbolism",
-    "still", "monument", "bust", "relief",
+    "still", "monument", "bust", "relief", "meditation", "meditative",
+    "reflection", "reflective", "contemplation", "contemplative",
+    "solitude", "silence", "book", "journal", "letter", "candle",
+    "artifact", "relic", "architecture", "ruins", "library", "engraving",
+    "detail", "close-up", "closeup", "still-life", "stilllife", "symbol",
+    "metaphor",
 }
+
 
 
 def _full_short_text(brief):
@@ -1614,17 +1660,17 @@ def _full_short_text(brief):
 
 
 def _determine_short_asset_type(brief, assets):
-    """Choose ONE visual format for the entire Short. Never mix formats."""
+    """Choose ONE visual format for the entire Short using topic and scene semantics."""
     text = _full_short_text(brief)
     tokens = _token_set(text)
 
-    # Historical / classical strength figures are explicitly image-first.
+    # Classical, historical, philosophical and contemplative subjects are
+    # image-first when their meaning benefits from a composed still.
     historical_hits = len(tokens & SHORT_FORMAT_HISTORY_GROUPS)
     if historical_hits >= 2 or any(phrase in text for phrase in (
         "marcus aurelius",
         "powerful historical figure",
         "historical strength figure",
-        "legendary warrior",
         "ancient warrior",
         "classical statue",
         "roman emperor",
@@ -1643,18 +1689,38 @@ def _determine_short_asset_type(brief, assets):
         still_score += 2
     if "cinematic" in visual_style or "dynamic" in visual_style or "action" in visual_style:
         motion_score += 2
-    if any(term in philosophical_theme for term in ("stoic", "ancient", "classical", "wisdom")):
+    if any(term in philosophical_theme for term in (
+        "stoic", "ancient", "classical", "wisdom", "meditation", "reflection"
+    )):
         still_score += 2
 
-    # Strong action/movement concepts should genuinely use footage when available.
-    if motion_score >= still_score + 2:
-        preferred = "video"
-    elif still_score >= motion_score + 2:
-        preferred = "image"
-    else:
-        # Default toward video when both formats are plausible so the factory
-        # does not drift into image-only output.
-        preferred = "video"
+    # Let the actual generated scene descriptions strengthen the decision.
+    for scene in brief.get("scenes", []) or []:
+        visual = scene.get("visual", {}) or {}
+        visual_type = str(visual.get("type", "")).lower()
+        action = str(visual.get("action", "")).lower()
+        composition = str(visual.get("composition", "")).lower()
+        camera = str(visual.get("camera", "")).lower()
+        scene_text = " ".join((visual_type, action, composition, camera))
+        scene_tokens = _token_set(scene_text)
+
+        motion_score += min(3, len(scene_tokens & SHORT_FORMAT_MOTION_WORDS))
+        still_score += min(3, len(scene_tokens & SHORT_FORMAT_STILL_WORDS))
+
+        if visual_type in {
+            "action", "slow-motion", "tracking shot", "movement", "chase",
+            "handheld movement", "dynamic", "motion"
+        }:
+            motion_score += 2
+        if visual_type in {
+            "close-up", "detail shot", "environmental shot", "symbolic", "still",
+            "portrait", "tableau"
+        }:
+            still_score += 2
+
+    # Clear still-image intent wins; otherwise keep the dynamic video-first
+    # behavior. Either way, the renderer uses only ONE medium for the Short.
+    preferred = "image" if still_score >= motion_score + 2 else "video"
 
     available = {
         "video": any(group.get("videos") for group in assets.get("videos", [])),
@@ -1668,6 +1734,7 @@ def _determine_short_asset_type(brief, assets):
     if available.get("image"):
         return "image"
     return preferred
+
 
 
 def _choose_scene_asset(scene, video_group, image_group, used_counts, previous, selected_asset_type):
