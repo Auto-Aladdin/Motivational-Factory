@@ -421,26 +421,35 @@ Vary the:
 CONTENT CONCEPT ENGINE:
 
 Do NOT begin by asking, "What motivational story should happen?"
-Begin by asking, "What human tension, contradiction, fear, desire, or realization is worth experiencing in under a minute?"
+Begin by asking, "What idea would make a viewer stop, recognize themselves, feel challenged, or rethink something important in under a minute?"
 
-Every Short must be built around ONE specific central idea that can be stated as a sharp thesis, question, contradiction, or emotional truth. The concept must be strong enough to remain interesting even if all visual spectacle is removed.
+This factory should generate PREMIUM, IDEA-DRIVEN MOTIVATIONAL SHORTS — not traditional story videos. The core unit is a powerful thought delivered with escalating emotional and intellectual pressure. A person or mini-situation may appear as a visual device, but a protagonist journey is NOT the default.
 
-IMPORTANT DIVERSITY RULE:
-Not every Short should be a story about a person. Deliberately diversify the concept form. Choose the form that best fits the central idea, and avoid repeating the same form across recent generations. Suitable forms include:
-- philosophical paradox or counterintuitive truth
-- direct inner conflict / internal conversation
-- thought experiment or hypothetical choice
-- observational life insight built around an overlooked behavior
-- symbolic object, environment, or ritual used as a metaphor
-- micro-vignette centered on a single decisive moment
-- reversal of a common motivational belief
-- question that the narration gradually answers
-- before/after identity contrast without a literal character plot
-- quiet confession or emotionally honest realization
-- sacrifice/trade-off analysis
-- time, regret, mortality, or consequence perspective
+Every Short must be built around ONE specific central thesis, contradiction, question, challenge, or realization strong enough to carry the entire video without relying on plot. The idea should feel like a thought the viewer has to finish thinking.
 
-Do not select a concept form merely because it is easy to visualize. Select it because it creates the strongest emotional or intellectual experience.
+PRIMARY FORMAT RULE:
+Favor direct motivational performance formats over conventional storytelling. Rotate among formats such as:
+- hard truth / uncomfortable truth
+- contradiction / paradox
+- direct challenge to the viewer
+- belief reversal / reframe
+- escalating "because" chain
+- cost / consequence ladder
+- identity test / "who are you becoming?"
+- fear-vs-choice confrontation
+- discipline vs comfort argument
+- time / regret / mortality realization
+- philosophical question that tightens with each beat
+- permission-denied / excuse dismantling
+- myth vs reality about success, confidence, or motivation
+- compressed mindset lesson built from contrasts
+- short list of escalating truths where every line raises the stakes
+
+Use an actual story, character journey, or before/after plot only when the idea genuinely becomes stronger because of that specific moment. Never add a character simply to make the Short "cinematic."
+
+DO NOT allow the concept to collapse into: setup -> character struggle -> obstacle -> success -> generic lesson. That pattern should be treated as a fallback to avoid, not the house style.
+
+The overall feeling should be: "someone just articulated a truth I needed to hear" rather than "I just watched a tiny movie."
 
 ================================================
 
@@ -473,38 +482,50 @@ The theme is NOT the story. It is the underlying human problem or question. Make
 
 ================================================
 
-NARRATIVE / RETENTION ARCHITECTURE:
+MOTIVATIONAL PERFORMANCE / RETENTION ARCHITECTURE:
 
-Do not use one universal beginning-middle-end template. Select the architecture that naturally creates forward motion for the chosen idea. Rotate among structures such as:
-- paradox -> unanswered question -> evidence -> reframe
-- provocative claim -> resistance -> deeper reason -> realization
-- concrete moment -> hidden meaning -> emotional turn -> payoff
-- temptation -> choice -> consequence -> principle
-- assumption -> contradiction -> discovery -> new perspective
-- question -> escalating possibilities -> reveal -> emotional resolution
-- quiet observation -> personal recognition -> wider truth -> final line
-- wound or failure -> unexpected meaning -> changed interpretation -> earned resolve
-- countdown / limited-time premise -> pressure -> choice -> insight
-- two opposing beliefs -> tension between them -> synthesis
-- repeated image or phrase with evolving meaning -> final transformation
+Do not use one universal formula. The Short should FEEL like a premium motivational performance: short, sharp, emotionally charged, intellectually clear, and constantly moving the viewer toward a stronger realization.
 
-Within every structure, create FORWARD PRESSURE. Each section should do at least one of the following:
-- answer a small question while opening a more important one
-- raise the emotional stakes
-- reveal a contradiction
-- add a new consequence
-- change the viewer's interpretation of what came before
-- narrow toward a specific realization
+Build the narration as a sequence of MICRO-BEATS rather than a traditional plot. Each beat should change the meaning, pressure, or emotional temperature. A micro-beat may be one sentence, half-sentence, contrast, question, punchline, pause setup, or perspective shift.
 
-Do not front-load the moral. The viewer should understand the subject early, but the deepest meaning should unfold progressively.
+Rotate among performance architectures such as:
+- hook -> contradiction -> escalation -> reframe -> final hit
+- hard truth -> examples/consequences -> deeper truth -> challenge
+- question -> partial answer -> harder question -> realization
+- "you think X" -> "but X is not the real problem" -> "here is what is" -> payoff
+- contrast ladder -> rising stakes -> one decisive insight
+- excuse -> dismantling -> identity shift -> challenge
+- comfort -> hidden cost -> future consequence -> choice
+- fear -> what it protects -> what it costs -> courage reframe
+- time -> what is being wasted -> irreversible consequence -> action insight
+- three escalating truths -> strongest truth last -> final line that reframes the first line
 
-For a 90-145 word narration, roughly use:
-- opening: establish the unresolved tension immediately
-- early-middle: deepen the problem and create a meaningful question
-- late-middle: introduce the key realization, contrast, or reversal
-- ending: compress the insight into a specific earned payoff
+MANDATORY MOMENTUM:
+The viewer should feel that the next line contains something they do not yet know. Across the Short, repeatedly use at least several of these devices where natural:
+- curiosity gap
+- contrast
+- escalation
+- implication
+- reversal
+- specificity
+- consequence
+- rhetorical question
+- short punch line
+- deliberate pause before a key realization
 
-These are pacing targets, not a rigid formula.
+Do not dump the conclusion near the beginning. Reveal the topic quickly, but make the deepest interpretation arrive late. The ending should make at least one earlier line feel more meaningful in retrospect.
+
+PACED LANGUAGE:
+Favor concise spoken sentences with variation in length. Use a few very short impact lines around longer explanatory lines. Avoid long paragraphs in the narration. The script should sound natural when spoken by a male cinematic voice and should leave room for visual/text beats.
+
+For a 90-145 word narration, treat the pacing as a performance curve rather than a rigid template:
+- first seconds: immediate hook + unresolved tension
+- early body: prove the tension is personal/relevant
+- middle: accelerate with contrast, stakes, or a reversal
+- late body: reveal the key realization
+- final moments: one memorable, earned line
+
+These are creative targets, not a fixed script formula.
 
 ================================================
 
@@ -609,14 +630,20 @@ NARRATION REQUIREMENTS:
 
 Target approximately 90-145 words, while remaining natural and complete.
 
-The narration must be:
-- immediately interesting
-- conversational enough to be spoken aloud
-- emotionally specific
-- concise
-- cinematic without sounding like an essay
+The narration must feel like a premium motivational monologue/performance, NOT a conventional narrated short story.
 
-The narration should contain a strong opening, meaningful tension or emotional movement, a genuine perspective shift, and a memorable final line.
+The narration must be:
+- immediately attention-grabbing
+- direct and viewer-facing when appropriate
+- emotionally specific
+- concise and punchy
+- intelligent without sounding academic
+- cinematic without becoming theatrical or literary for its own sake
+- built from escalating micro-beats rather than filler paragraphs
+
+Use strong declarative statements, sharp contrasts, rhetorical questions, and precise observations. Let the voice carry conviction and controlled intensity.
+
+Do not spend the word budget describing a character's backstory, explaining locations, or narrating obvious visual actions unless they are essential to the central idea. The narration should spend its words on the THOUGHT, the TENSION, the SHIFT, and the PAYOFF.
 
 ================================================
 
@@ -702,17 +729,19 @@ IMPORTANT: Do not default to a person-centered success story. First choose the s
 Concept-selection guidance:
 - Start from one sharp human tension, contradiction, fear, desire, trade-off, or realization.
 - Choose ONE primary motivational theme from the system library and make it specific rather than broad.
-- Choose ONE concept form that has not been overused in the recent generation patterns.
-- Choose a narrative architecture that naturally creates unanswered questions and progressive meaning.
+- Choose ONE performance format that has not been overused in the recent generation patterns.
+- Choose a micro-beat architecture that creates escalating attention rather than a character plot.
+- Write for the viewer's internal reaction: recognition -> curiosity -> pressure -> realization -> impact.
 - Make the ending solve or transform the opening tension rather than append advice.
-- Ensure the visual concept can support the exact idea without forcing generic people into every scene.
+- Ensure the visual concept supports the thought through symbolism, motion, scale, environment, or contrast rather than acting out a complete story.
 
 Before writing the narration, mentally answer these questions:
-1. Why would someone care about this idea in the first two seconds?
-2. What question or tension will keep them listening?
-3. What new information or perspective arrives in the middle?
-4. What changes in the viewer's understanding by the end?
-5. What final line could only belong to THIS concept?
+1. What line would make someone stop scrolling in the first seconds without using clickbait?
+2. What unresolved question, contradiction, or consequence pulls the viewer into the next beat?
+3. Where does the emotional/intellectual pressure increase?
+4. What is the strongest perspective shift in the Short?
+5. What line is worth replaying, quoting, or sending to someone?
+6. Does this still work as a powerful motivational idea even if the character/story layer is removed?
 
 Return exactly:
 
@@ -775,24 +804,26 @@ Return exactly:
 
 Requirements:
 
-- Create ONE original motivational Short using the strongest concept for the chosen human tension, not simply the easiest story to write.
-- The Short may be person-centered, but it must NOT default to a character story unless a specific event or perspective genuinely benefits from one.
-- Create 5-8 cinematic visual moments. Do not force unnecessary scene changes.
+- Create ONE original premium motivational Short centered on a powerful idea, not a traditional story.
+- A person, object, or moment may be used as a visual metaphor, but do not default to a character journey, backstory, obstacle sequence, or success story.
+- Create 5-8 cinematic visual moments that support the motivational performance. Do not force unnecessary scene changes.
 - Target approximately 90-145 narration words.
-- Make the first sentence immediately compelling, specific to the concept, and impossible to swap into a different motivational Short unchanged.
-- Within the first few beats, establish an unresolved question, contradiction, emotional stake, or consequence that gives the viewer a reason to stay.
-- Make every subsequent beat introduce new information, a stronger consequence, a perspective shift, or a deeper question. Do not repeat the same motivational point in different words.
-- Do not reveal the complete lesson at the beginning. Let the meaning unfold and make the payoff earn its place.
-- Give the final line a specific job: resolve the central tension, reframe the opening, or crystallize the exact lesson discovered by the Short.
-- Include at least one line, contrast, realization, or image that feels worth remembering or replaying when appropriate.
+- Make the first sentence immediately compelling, specific, and difficult to ignore without relying on clickbait.
+- Within the first few beats, establish an unresolved question, contradiction, emotional stake, or consequence that creates forward pressure.
+- Make every subsequent beat add new information, stronger stakes, sharper contrast, deeper meaning, or a perspective shift. Never restate the thesis just to fill time.
+- Use concise, punchy spoken phrasing with variation in sentence length so the narration has rhythm.
+- Prefer direct motivational language, precise observations, philosophical reframes, and hard truths over scene-by-scene exposition.
+- Do not reveal the complete lesson at the beginning. Let the thought intensify and make the payoff earn its place.
+- Give the final line a specific job: deliver the strongest realization, reframe the opening, or leave the viewer with a memorable challenge/question.
+- Include at least one line or contrast that feels quotable, replayable, or worth sharing when natural.
 - Use original, audience-relevant concepts around discipline, fear, self-doubt, resilience, loneliness, consistency, purpose, failure, courage, delayed success, identity, ambition, comfort, mental strength, time, regret, focus, sacrifice, personal growth, inner conflict, perseverance, or philosophical perspective when the topic naturally supports them.
-- Avoid generic positivity, chained slogans, recycled "fall then rise" stories, and advice that could belong to any motivational channel.
-- Ensure the selected voice personality, pace, emotion, and intensity match the finished narration.
+- Avoid generic positivity, chained slogans, recycled "fall then rise" plots, and advice that could belong to any motivational channel.
+- Avoid writing an opening that sounds like a documentary setup. Open like a compelling thought, challenge, contradiction, or realization.
+- Ensure the selected voice personality, pace, emotion, and intensity match the finished motivational performance.
 - Every scene must correspond to a specific narration beat and advance the idea rather than merely illustrate it literally.
-- Every scene must contain meaningful action, symbolic change, environmental progression, or a deliberate visual contrast.
-- Do not put the same person standing in front of the camera in every scene.
-- Do not repeat the same visual composition.
-- Use symbolic visuals, objects, spaces, movement, isolation, scale, repetition, and transformation when they strengthen the exact concept.
+- Prefer cinematic symbolism, powerful environments, meaningful actions, scale, movement, contrast, repetition, texture, and visual progression.
+- Do not repeat the same visual composition or generic standing-character shot.
+- Keep the visuals premium and purposeful: each scene should make the idea feel stronger, not simply make the frame look busy.
 - Avoid repeating the same concept form, emotional arc, hook wording, or ending logic from previous generations.
 - quality_score may initially contain 0 values because the external quality gate will evaluate it later.
 """
@@ -1245,22 +1276,22 @@ def run_quality_gate(data):
                 "content": """
 You are a strict cinematic creative quality judge.
 
-Evaluate a generated motivational YouTube Short.
+Evaluate a generated premium motivational YouTube Short.
 
-You are NOT rewriting the story.
+You are NOT rewriting the piece.
 
-You are judging whether it is creative, emotionally compelling, and specific enough to continue into expensive production.
+You are judging whether it works as a high-retention motivational performance rather than a conventional story video, and whether it is specific enough to continue into expensive production.
 
 Score each category from 1 to 10.
 
 originality:
-Does the concept, hook, motivational philosophy, and narrative lens feel genuinely fresh rather than like a reworded motivation template?
+Does the concept, hook, motivational philosophy, performance format, and central thought feel genuinely fresh rather than like a reworded motivation template or another mini-story?
 
 philosophical_depth:
-Does the narration create a real internal shift through tension, emotional specificity, reflection, or consequence? Is the final insight earned by the preceding lines rather than generic advice?
+Does the narration create a real internal shift through tension, contrast, emotional specificity, reflection, consequence, or a sharp reframe? Is the final insight earned by the preceding lines rather than generic advice?
 
 visual_strength:
-Do the scenes create strong cinematic imagery, specific actions, environments and compositions that reinforce the emotional meaning of each narration beat?
+Do the scenes create premium cinematic imagery, specific actions, environments, symbolic meaning and compositions that amplify the motivational performance rather than merely decorate a narration?
 
 repetition_risk:
 How likely is the short to feel repetitive, generic or interchangeable with another motivational Short? Consider repeated opening patterns, predictable emotional arcs, generic phrases, interchangeable endings, and overused visual premises.
@@ -1274,7 +1305,7 @@ Pay special attention to:
 - Specificity: concrete human stakes, precise observations, trade-offs, sensations, or symbolic details are stronger than vague encouragement.
 - Payoff: does the ending make the opening more meaningful in retrospect and deliver a specific realization that feels earned?
 - Rewatchability: is there a line, contrast, or idea that becomes more meaningful after the payoff without becoming confusing?
-- Concept diversity: does this feel like a genuinely different motivational experience rather than another person-overcomes-adversity story or another variation of the same arc?
+- Format diversity: does this feel like a genuinely different motivational performance rather than another person-overcomes-adversity story or another copy of the same motivational monologue pattern?
 - Visual-semantic coherence: do the scenes reinforce the exact emotional and philosophical progression instead of decorating a generic speech?
 
 Automatic warning signs:
@@ -1285,8 +1316,10 @@ Automatic warning signs:
 - No clear unanswered tension after the opening
 - A middle section that merely repeats the hook or thesis in new wording
 - Recycled "darkness to light" or "fall then rise" structure without a fresh philosophy
-- Generic person-centered struggle story used when an idea, contradiction, observation, or symbolic concept would be stronger
+- Traditional character-story structure used when a direct idea, contradiction, observation, or symbolic concept would be stronger
 - Narration that could be swapped into another Short with almost no changes
+- Long setup, backstory, or plot exposition before the motivational idea arrives
+- A flat sequence of slogans with no escalation, contradiction, or perspective shift
 - Final line that could close almost any motivational video
 
 A high repetition_risk is BAD.
@@ -2067,8 +2100,8 @@ for attempt in range(5):
             last_error = (
                 "Structural validation failed. "
                 "Create a valid cinematic original "
-                "story with exactly 6 complete scenes "
-                "and strong story-connected visuals."
+                "motivational concept with exactly 6 complete scenes "
+                "and strong idea-connected visuals."
             )
 
             print(
@@ -2118,14 +2151,15 @@ for attempt in range(5):
                 f"{quality.get('repetition_risk', 10)}/10. "
 
                 "Create a substantially different "
-                "cinematic concept. Use a different "
-                "concept form, central tension, emotional "
-                "progression, hook logic, and payoff. "
-                "Avoid generic motivation, repeated "
-                "visual structures, person-centered plots "
-                "by default, and interchangeable scenes. "
-                "Make every narration beat add new meaning "
-                "and make the final line specifically earned."
+                "premium motivational concept. Use a different "
+                "performance format, central tension, emotional "
+                "progression, hook logic, escalation, and payoff. "
+                "Avoid traditional story structures when a direct "
+                "motivational idea would be stronger. Avoid generic "
+                "motivation, repeated visual structures, flat lists "
+                "of slogans, and interchangeable scenes. Make every "
+                "narration beat add new meaning and make the final "
+                "line specifically earned."
             )
 
             print(
