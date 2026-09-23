@@ -484,24 +484,41 @@ The theme is NOT the story. It is the underlying human problem or question. Make
 
 MOTIVATIONAL PERFORMANCE / RETENTION ARCHITECTURE:
 
-Do not use one universal formula. The Short should FEEL like a premium motivational performance: short, sharp, emotionally charged, intellectually clear, and constantly moving the viewer toward a stronger realization.
+Do not use one universal formula. The Short must FEEL like a premium modern motivational performance, not a miniature movie and not a chain of quotes: short, sharp, emotionally charged, intellectually clear, rhythmically edited, and constantly moving the viewer toward a stronger realization.
 
-Build the narration as a sequence of MICRO-BEATS rather than a traditional plot. Each beat should change the meaning, pressure, or emotional temperature. A micro-beat may be one sentence, half-sentence, contrast, question, punchline, pause setup, or perspective shift.
+CORE FORMAT IDENTITY — NON-NEGOTIABLE:
+- This is inspirational philosophy / motivational performance, NOT traditional storytelling.
+- A person, mini-situation, or character may appear as a visual metaphor, but a protagonist journey, backstory, obstacle plot, comeback plot, or success narrative is NOT the default.
+- The primary engine is the IDEA: a belief, contradiction, fear, trade-off, identity problem, uncomfortable truth, philosophical realization, or challenge that keeps getting sharper.
+- The viewer should feel personally addressed, challenged, understood, or mentally provoked rather than waiting to see what happens to a character.
+- Every spoken beat must earn its place by adding a new insight, stronger consequence, contrast, question, realization, or action.
 
-Rotate among performance architectures such as:
-- hook -> contradiction -> escalation -> reframe -> final hit
-- hard truth -> examples/consequences -> deeper truth -> challenge
+ROTATING PERFORMANCE ARCHITECTURES:
+Choose the structure that best fits the idea and avoid repeating the same one across recent generations:
+- hard truth -> consequence -> deeper truth -> challenge
+- contradiction -> explanation -> reversal -> final hit
 - question -> partial answer -> harder question -> realization
-- "you think X" -> "but X is not the real problem" -> "here is what is" -> payoff
-- contrast ladder -> rising stakes -> one decisive insight
-- excuse -> dismantling -> identity shift -> challenge
-- comfort -> hidden cost -> future consequence -> choice
+- comfort -> hidden cost -> identity shift -> action
 - fear -> what it protects -> what it costs -> courage reframe
-- time -> what is being wasted -> irreversible consequence -> action insight
-- three escalating truths -> strongest truth last -> final line that reframes the first line
+- time -> what is being wasted -> irreversible consequence -> action
+- belief -> dismantling -> sharper belief -> memorable conclusion
+- three escalating truths -> strongest truth last -> final reframe
+- direct challenge -> internal conflict -> decision -> empowerment
+- philosophical observation -> tension -> implication -> personal realization
+
+TIMED PERFORMANCE MAP — USE AS A CREATIVE PACING TARGET, NOT A RIGID SCRIPT TEMPLATE:
+For an approximately 100-145 word Short, shape the narration so the emotional/intellectual energy progresses roughly through these windows:
+- 0-2s: SCROLL-STOPPING HOOK. Usually 5-10 spoken words. No greeting, context dump, or slow introduction.
+- 2-12s: PAIN / PROBLEM. Make the viewer recognize the human tension, cost, fear, contradiction, or uncomfortable reality behind the hook.
+- 12-25s: EMOTIONAL TENSION. Deepen the problem with consequences, contrast, questions, or a reversal. Do not repeat the thesis.
+- 25-40s: TRUTH / REALIZATION. Deliver the strongest conceptual insight after the viewer has earned enough context to feel it.
+- 40-52s: ACTION / CHOICE. Shift from understanding to what the viewer can decide, stop, start, accept, or confront.
+- FINAL 3-5s: MEMORABLE PAYOFF. End with a short, specific line that lands harder because of everything before it. Leave no room for a generic closing slogan.
+
+The phase boundaries are targets for performance pacing, not permission to cram in filler. A line may cross a boundary when natural. Preserve natural spoken rhythm over mechanical word counts.
 
 MANDATORY MOMENTUM:
-The viewer should feel that the next line contains something they do not yet know. Across the Short, repeatedly use at least several of these devices where natural:
+The viewer should feel that the next line contains something they do not yet know. Across the Short, repeatedly use several of these devices where natural:
 - curiosity gap
 - contrast
 - escalation
@@ -512,26 +529,30 @@ The viewer should feel that the next line contains something they do not yet kno
 - rhetorical question
 - short punch line
 - deliberate pause before a key realization
+- a sentence fragment that completes on the next beat
+- an earned perspective shift
 
-Do not dump the conclusion near the beginning. Reveal the topic quickly, but make the deepest interpretation arrive late. The ending should make at least one earlier line feel more meaningful in retrospect.
+Do not dump the conclusion near the beginning. Reveal the problem quickly, but make the deepest interpretation arrive later. The ending should make at least one earlier line feel more meaningful in retrospect.
 
-PACED LANGUAGE:
-Favor concise spoken sentences with variation in length. Use a few very short impact lines around longer explanatory lines. Avoid long paragraphs in the narration. The script should sound natural when spoken by a male cinematic voice and should leave room for visual/text beats.
-
-For a 90-145 word narration, treat the pacing as a performance curve rather than a rigid template:
-- first seconds: immediate hook + unresolved tension
-- early body: prove the tension is personal/relevant
-- middle: accelerate with contrast, stakes, or a reversal
-- late body: reveal the key realization
-- final moments: one memorable, earned line
-
-These are creative targets, not a fixed script formula.
+LANGUAGE / PERFORMANCE RHYTHM:
+- Favor short, punchy spoken sentences with strategic variation in length.
+- Use sentence fragments intentionally when they increase impact.
+- Place occasional very short lines between longer explanations to create rhythmic compression and release.
+- Avoid paragraphs that sound like essays, audiobook narration, or calm documentary exposition.
+- Avoid stacking three motivational slogans in a row.
+- Avoid explaining the visual when the visual can communicate it.
+- Prefer direct human language that sounds natural when delivered by a confident male cinematic voice.
+- Increase emotional pressure toward the realization and final line instead of maintaining one flat intensity level.
 
 ================================================
 
 HOOK REQUIREMENTS:
 
-The opening sentence must create an immediate reason to continue watching. It should make the viewer feel one of: "Wait, what?", "That is me", "I never thought about it that way", "What happens next?", or "I need the answer."
+The opening 0-2 seconds are the most important creative moment. The first spoken line must create an immediate reason to continue watching. It should make the viewer feel one of: "Wait, what?", "That is me", "I never thought about it that way", "What happens next?", or "I need the answer."
+
+The hook should usually be short enough to land in roughly 2 seconds and should be written as a direct motivational statement, contradiction, question, challenge, or emotionally precise observation. It must reveal the human problem without revealing the complete solution.
+
+The hook should feel like the beginning of a powerful thought already in motion — not the introduction to a story.
 
 Prefer hooks based on:
 - a surprising contradiction
@@ -628,9 +649,9 @@ Avoid:
 
 NARRATION REQUIREMENTS:
 
-Target approximately 90-145 words, while remaining natural and complete.
+Target approximately 100-145 words, while remaining natural and complete. Favor the shortest wording that creates the intended emotional effect; never add filler merely to hit a word count.
 
-The narration must feel like a premium motivational monologue/performance, NOT a conventional narrated short story.
+The narration must feel like a premium motivational monologue/performance, NOT a conventional narrated short story. It should sound like a powerful idea being delivered in real time, with escalating pressure and a final realization.
 
 The narration must be:
 - immediately attention-grabbing
@@ -652,7 +673,13 @@ VISUAL PHILOSOPHY:
 Do not create literal stock-footage filler.
 Do not force a random person to act out every sentence.
 
-Use symbolic cinematic storytelling and concrete actions that reinforce the exact narration beat.
+Choose ONE visual medium for the entire Short:
+- MOTION-FIRST / VIDEO when the concept depends on movement, repetition, pursuit, physical effort, environmental change, travel, impact, weather, scale, or visible transformation.
+- IMAGE-FIRST when the concept depends on philosophy, symbolism, identity, memory, stillness, architecture, statues, objects, abstract contrast, or a composed visual metaphor.
+
+Never design a concept that requires mixed media to make sense. The existing renderer will preserve one medium across the Short.
+
+Use symbolic cinematic imagery and concrete actions that reinforce the exact narration beat. Every visual should make the thought easier to feel, not merely more decorative.
 
 A visual can communicate an idea through:
 - action
@@ -664,14 +691,21 @@ A visual can communicate an idea through:
 - isolation
 - repetition
 - transformation
+- light vs shadow
+- distance / framing
+- texture / atmosphere
 
-Every scene must have a distinct purpose.
+Avoid repeated "person standing and looking dramatic" compositions. Prefer meaningful movement, objects, architecture, hands, silhouettes, roads, clocks, stairs, mountains, statues, rain, reflections, workspaces, physical effort, or symbolic environmental changes when they genuinely support the idea.
+
+Every scene must have a distinct purpose and must correspond to a specific narration beat.
 
 ================================================
 
 VOICE DIRECTION:
 
-Select the profile that best matches the finished narration, not merely the broad topic.
+Select the profile that best matches the finished narration, not merely the broad topic. The performance must be MALE ONLY.
+
+The intended delivery should feel natural, confident, deep, emotionally engaged, and cinematic — never like an audiobook, lecture, calm documentary, or synthetic quote reader. Start controlled, then increase pressure and conviction toward the realization and final line.
 
 Available profiles:
 
@@ -807,8 +841,11 @@ Requirements:
 - Create ONE original premium motivational Short centered on a powerful idea, not a traditional story.
 - A person, object, or moment may be used as a visual metaphor, but do not default to a character journey, backstory, obstacle sequence, or success story.
 - Create 5-8 cinematic visual moments that support the motivational performance. Do not force unnecessary scene changes.
-- Target approximately 90-145 narration words.
-- Make the first sentence immediately compelling, specific, and difficult to ignore without relying on clickbait.
+- Target approximately 100-145 narration words, with the strongest ideas receiving the most words and filler receiving none.
+- Make the first sentence immediately compelling, specific, and difficult to ignore without relying on clickbait. It should be capable of landing within roughly the first 2 seconds.
+- Shape the narration toward this emotional progression: pain/problem -> tension -> truth -> realization -> action/choice -> empowerment/payoff. Do not treat this as a rigid plot; it is a pressure curve.
+- Keep the concept idea-first and non-story-driven unless a brief human example is genuinely essential to the insight.
+- Choose one medium for the entire Short and keep all visual descriptions compatible with that choice.
 - Within the first few beats, establish an unresolved question, contradiction, emotional stake, or consequence that creates forward pressure.
 - Make every subsequent beat add new information, stronger stakes, sharper contrast, deeper meaning, or a perspective shift. Never restate the thesis just to fill time.
 - Use concise, punchy spoken phrasing with variation in sentence length so the narration has rhythm.
@@ -1298,6 +1335,8 @@ How likely is the short to feel repetitive, generic or interchangeable with anot
 
 Pay special attention to:
 
+- Format identity: Does this feel like a premium motivational performance / inspirational philosophy piece rather than a conventional story?
+- Timed progression: Does the opening hit immediately, the problem arrive early, tension build through the middle, the deepest truth arrive later, and the ending land as a final payoff?
 - Concept strength: Is there one compelling human tension, contradiction, question, trade-off, or realization strong enough to carry the entire Short?
 - The first sentence: does it create an immediate reason to continue without giving away the entire lesson?
 - Curiosity architecture: is there a meaningful unanswered question, contradiction, or consequence that the narration resolves progressively?
@@ -1318,6 +1357,10 @@ Automatic warning signs:
 - Recycled "darkness to light" or "fall then rise" structure without a fresh philosophy
 - Traditional character-story structure used when a direct idea, contradiction, observation, or symbolic concept would be stronger
 - Narration that could be swapped into another Short with almost no changes
+- First line that needs more than a few seconds to become interesting
+- A problem, truth, or realization revealed too early with nothing meaningful left to discover
+- A flat emotional line that stays at one intensity instead of building toward the ending
+- Visual concepts that depend on mixed media when one coherent medium would be stronger
 - Long setup, backstory, or plot exposition before the motivational idea arrives
 - A flat sequence of slogans with no escalation, contradiction, or perspective shift
 - Final line that could close almost any motivational video
