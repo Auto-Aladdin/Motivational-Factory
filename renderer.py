@@ -18,7 +18,6 @@ remain unchanged.
 import json
 import os
 import re
-import wave
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -923,238 +922,6 @@ def _groups_from_aligned_words(words, plan=None, max_words=5):
     return groups
 
 
-def _wav_duration(path):
-    """Return a WAV duration without changing the existing audio pipeline."""
-    try:
-        with wave.open(str(path), "rb") as wav_file:
-            frames = wav_file.getnframes()
-            rate = wav_file.getframerate()
-            if rate:
-                return float(frames) / float(rate)
-    except Exception as exc:
-        print("Could not read WAV duration:", path, exc)
-    return 0.0
-
-
-def _split_narration_sentences(narration):
-    """Match the same sentence splitting rule used by voice_engine.py."""
-    sentences = re.split(r'(?<=[.!?])\s+', str(narration or "").strip())
-    return [sentence.strip() for sentence in sentences if sentence.strip()]
-
-
-def _deterministic_fallback_alignment(narration, audio_duration, plan=None):
-    """
-    Build deterministic word timing from the exact audio pieces already produced
-    by voice_engine.py. This is only used when Whisper timing is unavailable.
-
-    voice_engine.py concatenates each sentence WAV followed by a separate
-    silence_N.wav file. The previous fallback used the sentence WAV durations
-    but omitted those silence files, which caused the caption timeline to drift
-    earlier after every sentence. This version advances the caption cursor by
-    BOTH the spoken sentence duration and the exact inserted silence duration.
-
-    Word timings inside each spoken sentence are distributed by character length
-    so the existing caption grouping/layout stays unchanged.
-    """
-    if audio_duration <= 0:
-        return []
-
-    sentences = _split_narration_sentences(narration)
-    if not sentences:
-        return []
-
-    style_lookup = _style_lookup_from_plan(plan or [])
-    aligned = []
-    cursor = 0.0
-    used_voice_parts = 0
-
-    # Read the exact generated audio-part durations first.  These files are
-    # created by the existing voice pipeline and therefore give us the real
-    # sentence boundaries without changing how audio is generated.
-    part_durations = []
-    silence_durations = []
-    missing_silences = []
-
-    for index in range(len(sentences)):
-        part_path = OUTPUT / f"voice_part_{index}.wav"
-        part_duration = _wav_duration(part_path) if part_path.exists() else 0.0
-        part_durations.append(max(0.0, part_duration))
-
-        silence_path = OUTPUT / f"silence_{index}.wav"
-        silence_duration = _wav_duration(silence_path) if silence_path.exists() else 0.0
-        silence_durations.append(max(0.0, silence_duration))
-
-        if not silence_duration and index < len(sentences):
-            missing_silences.append(index)
-
-    # In a normal run voice_engine.py keeps the silence WAVs.  When an older or
-    # partially-cleaned output is missing them, recover the total missing pause
-    # time from the real final audio rather than allowing cumulative drift.
-    known_parts_total = sum(part_durations)
-    known_silences_total = sum(silence_durations)
-    remaining_pause = max(0.0, float(audio_duration) - known_parts_total - known_silences_total)
-
-    if missing_silences and remaining_pause > 0:
-        per_missing_pause = remaining_pause / float(len(missing_silences))
-        for index in missing_silences:
-            silence_durations[index] = per_missing_pause
-
-    for index, sentence in enumerate(sentences):
-        sentence_words = _narration_tokens(sentence)
-        if not sentence_words:
-            cursor += part_durations[index] + silence_durations[index]
-            continue
-
-        # The spoken sentence begins exactly after the previous sentence's
-        # audio AND its inserted pause.
-        speech_start = min(max(0.0, cursor), float(audio_duration))
-        part_duration = part_durations[index]
-
-        if part_duration > 0:
-            used_voice_parts += 1
-            speech_end = min(
-                float(audio_duration),
-                speech_start + part_duration,
-            )
-        else:
-            # Emergency timing for a missing sentence WAV.  Use the remaining
-            # real audio while still honoring all known sentence boundaries.
-            remaining_sentences = max(1, len(sentences) - index)
-            remaining_audio = max(0.0, float(audio_duration) - speech_start)
-            speech_end = min(
-                float(audio_duration),
-                speech_start + remaining_audio / remaining_sentences,
-            )
-
-        if speech_end <= speech_start:
-            # Keep the timeline monotonic even for a zero-length/fully exhausted
-            # output; normal runs never enter this branch for spoken sentences.
-            speech_end = min(
-                float(audio_duration),
-                speech_start + 0.01,
-            )
-
-        timings = _weighted_time_split(
-            speech_start,
-            speech_end,
-            sentence_words,
-        )
-
-        for word, (word_start, word_end) in zip(sentence_words, timings):
-            style = style_lookup.get(
-                _normalize_token(word),
-                {
-                    "style": "normal",
-                    "color": DEFAULT_NORMAL,
-                    "animation": "fade",
-                },
-            )
-            aligned.append(
-                {
-                    "word": word,
-                    "start": round(max(0.0, word_start), 3),
-                    "end": round(
-                        min(
-                            float(audio_duration),
-                            max(word_start + 0.01, word_end),
-                        ),
-                        3,
-                    ),
-                    **style,
-                }
-            )
-
-        # IMPORTANT: advance by the real pause that voice_engine.py inserted
-        # after this sentence.  This is the timing fix that prevents cumulative
-        # caption drift across the narration.
-        cursor = speech_end + silence_durations[index]
-        cursor = min(float(audio_duration), max(cursor, speech_end))
-
-    target = [
-        word
-        for word in _narration_tokens(narration)
-        if _normalize_token(word)
-    ]
-
-    # Keep the existing safety behavior for unusual/stale output directories:
-    # any words that could not be mapped to a sentence WAV are distributed over
-    # the remaining real audio instead of reverting to a giant narration clip.
-    if len(aligned) != len(target):
-        existing_count = len(aligned)
-        remaining_words = target[existing_count:]
-        if remaining_words:
-            remaining_start = min(cursor, float(audio_duration))
-            remaining_end = max(
-                remaining_start + 0.01,
-                float(audio_duration),
-            )
-            timings = _weighted_time_split(
-                remaining_start,
-                remaining_end,
-                remaining_words,
-            )
-            for word, (word_start, word_end) in zip(remaining_words, timings):
-                style = style_lookup.get(
-                    _normalize_token(word),
-                    {
-                        "style": "normal",
-                        "color": DEFAULT_NORMAL,
-                        "animation": "fade",
-                    },
-                )
-                aligned.append(
-                    {
-                        "word": word,
-                        "start": round(max(0.0, word_start), 3),
-                        "end": round(
-                            min(
-                                float(audio_duration),
-                                max(word_start + 0.01, word_end),
-                            ),
-                            3,
-                        ),
-                        **style,
-                    }
-                )
-
-    # Final monotonicity/coverage pass.
-    normalized = []
-    previous_end = 0.0
-    for item in aligned[:len(target)]:
-        start = max(
-            previous_end,
-            min(float(audio_duration), float(item.get("start", 0.0))),
-        )
-        end = min(
-            float(audio_duration),
-            max(start + 0.01, float(item.get("end", start + 0.01))),
-        )
-
-        if end <= start:
-            continue
-
-        normalized.append(
-            {
-                **item,
-                "start": round(start, 3),
-                "end": round(end, 3),
-            }
-        )
-        previous_end = end
-
-    if used_voice_parts:
-        print(
-            "Deterministic caption fallback: timed from "
-            f"{used_voice_parts} voice part(s) + exact silence durations."
-        )
-    else:
-        print(
-            "Deterministic caption fallback: timed across the real voice duration."
-        )
-
-    return normalized
-
-
 def _rebuild_plan_timing(plan, narration, audio_path):
     """
     Validate the saved caption plan against the actual voice and only replace
@@ -1170,25 +937,11 @@ def _rebuild_plan_timing(plan, narration, audio_path):
         return _extend_group_display_windows(plan, duration)
 
     aligned = caption_segments(audio_path, narration)
-    if aligned:
-        return _extend_group_display_windows(
-            _groups_from_aligned_words(aligned, plan=plan),
-            duration,
-        )
-
-    # Whisper is optional. When it is unavailable, use the audio pieces already
-    # generated by voice_engine.py so caption timing still follows the real
-    # spoken audio. Never fall back to rendering the entire narration at once.
-    fallback_aligned = _deterministic_fallback_alignment(
-        narration,
-        duration,
-        plan=plan,
-    )
-    if not fallback_aligned:
+    if not aligned:
         return []
 
     return _extend_group_display_windows(
-        _groups_from_aligned_words(fallback_aligned, plan=plan),
+        _groups_from_aligned_words(aligned, plan=plan),
         duration,
     )
 
@@ -1664,57 +1417,7 @@ def build_captions(narration):
         if clips:
             return clips
 
-    # Last-resort safety net: still create readable grouped captions instead of
-    # placing the complete narration into one TextClip. This path should be
-    # reached only when both Whisper and deterministic audio-part timing fail.
-    duration = get_audio_duration()
-    fallback_aligned = _deterministic_fallback_alignment(
-        narration,
-        duration,
-        plan=plan,
-    )
-    if fallback_aligned:
-        brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
-        theme = choose_caption_theme(narration, None, brief=brief)
-        font = resolve_caption_font(theme)
-        fallback_groups = _extend_group_display_windows(
-            _groups_from_aligned_words(fallback_aligned, plan=plan),
-            duration,
-        )
-        clips = []
-        for group in fallback_groups:
-            clips.extend(make_caption_group(group, font, theme=theme))
-        if clips:
-            return clips
-
-    # Absolute emergency fallback for an environment with no usable timing
-    # source. Keep it small enough to be readable, and group the narration so
-    # the entire script is never displayed simultaneously.
-    emergency_words = _narration_tokens(narration)
-    if not emergency_words:
-        return []
-
-    style_lookup = _style_lookup_from_plan(plan or [])
-    emergency = []
-    word_ranges = _weighted_time_split(0.0, max(0.4, duration), emergency_words)
-    for word, (start, end) in zip(emergency_words, word_ranges):
-        emergency.append({
-            "word": word,
-            "start": start,
-            "end": end,
-            **style_lookup.get(
-                _normalize_token(word),
-                {"style": "normal", "color": DEFAULT_NORMAL, "animation": "fade"},
-            ),
-        })
-
-    brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
-    theme = choose_caption_theme(narration, None, brief=brief)
-    font = resolve_caption_font(theme)
-    clips = []
-    for group in _groups_from_aligned_words(emergency, plan=plan):
-        clips.extend(make_caption_group(group, font, theme=theme))
-    return clips
+    return [make_caption(narration, 0, get_audio_duration())]
 
 
 # =====================================================
