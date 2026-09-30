@@ -18,6 +18,7 @@ remain unchanged.
 import json
 import os
 import re
+import wave
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -922,6 +923,153 @@ def _groups_from_aligned_words(words, plan=None, max_words=5):
     return groups
 
 
+def _wav_duration(path):
+    """Return a WAV duration without changing the existing audio pipeline."""
+    try:
+        with wave.open(str(path), "rb") as wav_file:
+            frames = wav_file.getnframes()
+            rate = wav_file.getframerate()
+            if rate:
+                return float(frames) / float(rate)
+    except Exception as exc:
+        print("Could not read WAV duration:", path, exc)
+    return 0.0
+
+
+def _split_narration_sentences(narration):
+    """Match the same sentence splitting rule used by voice_engine.py."""
+    sentences = re.split(r'(?<=[.!?])\s+', str(narration or "").strip())
+    return [sentence.strip() for sentence in sentences if sentence.strip()]
+
+
+def _deterministic_fallback_alignment(narration, audio_duration, plan=None):
+    """
+    Build real-looking word timing from the voice parts already produced by the
+    existing voice pipeline. This is only a fallback when Whisper is unavailable.
+
+    Each voice_part_N.wav corresponds to sentence N in voice_engine.py. Words
+    inside that sentence are distributed across the actual spoken-part duration
+    using character-length weights. Silence files are not assigned to future
+    words; the normal display-window extension handles those pauses later.
+    """
+    if audio_duration <= 0:
+        return []
+
+    sentences = _split_narration_sentences(narration)
+    if not sentences:
+        return []
+
+    style_lookup = _style_lookup_from_plan(plan or [])
+    aligned = []
+    cursor = 0.0
+    used_voice_parts = 0
+
+    # Prefer the exact generated sentence audio whenever it is available.
+    for index, sentence in enumerate(sentences):
+        part_path = OUTPUT / f"voice_part_{index}.wav"
+        sentence_words = _narration_tokens(sentence)
+
+        if part_path.exists():
+            part_duration = _wav_duration(part_path)
+            if part_duration > 0:
+                start = min(cursor, audio_duration)
+                end = min(audio_duration, start + part_duration)
+                used_voice_parts += 1
+            else:
+                start = cursor
+                end = start
+        else:
+            start = cursor
+            end = start
+
+        if not sentence_words:
+            cursor = max(cursor, end)
+            continue
+
+        # If the individual WAV files are unavailable/incomplete, use the
+        # remaining narration/audio range as a deterministic emergency fallback.
+        if end <= start:
+            remaining_sentences = max(1, len(sentences) - index)
+            remaining = max(0.0, audio_duration - cursor)
+            end = min(audio_duration, cursor + remaining / remaining_sentences)
+
+        timings = _weighted_time_split(start, end, sentence_words)
+        for word, (word_start, word_end) in zip(sentence_words, timings):
+            style = style_lookup.get(
+                _normalize_token(word),
+                {
+                    "style": "normal",
+                    "color": DEFAULT_NORMAL,
+                    "animation": "fade",
+                },
+            )
+            aligned.append(
+                {
+                    "word": word,
+                    "start": round(max(0.0, word_start), 3),
+                    "end": round(min(audio_duration, max(word_start + 0.01, word_end)), 3),
+                    **style,
+                }
+            )
+
+        cursor = max(cursor, end)
+
+    # If voice_part files exist but do not cover the complete audio because of
+    # an unusual/stale output directory, preserve coverage for any remaining
+    # narration words rather than ever reverting to one giant TextClip.
+    target = [word for word in _narration_tokens(narration) if _normalize_token(word)]
+    if len(aligned) != len(target):
+        existing_count = len(aligned)
+        remaining_words = target[existing_count:]
+        if remaining_words:
+            remaining_start = min(cursor, audio_duration)
+            remaining_end = max(remaining_start + 0.01, audio_duration)
+            timings = _weighted_time_split(remaining_start, remaining_end, remaining_words)
+            for word, (word_start, word_end) in zip(remaining_words, timings):
+                style = style_lookup.get(
+                    _normalize_token(word),
+                    {
+                        "style": "normal",
+                        "color": DEFAULT_NORMAL,
+                        "animation": "fade",
+                    },
+                )
+                aligned.append(
+                    {
+                        "word": word,
+                        "start": round(max(0.0, word_start), 3),
+                        "end": round(min(audio_duration, max(word_start + 0.01, word_end)), 3),
+                        **style,
+                    }
+                )
+
+    # Final monotonicity/coverage pass.
+    normalized = []
+    previous_end = 0.0
+    for item in aligned[:len(target)]:
+        start = max(previous_end, min(audio_duration, float(item.get("start", 0.0))))
+        end = max(start + 0.01, min(audio_duration, float(item.get("end", start + 0.01))))
+        if end > audio_duration:
+            end = audio_duration
+        if end <= start:
+            continue
+        normalized.append(
+            {
+                **item,
+                "start": round(start, 3),
+                "end": round(end, 3),
+            }
+        )
+        previous_end = end
+
+    if used_voice_parts:
+        print(f"Deterministic caption fallback: timed from {used_voice_parts} voice part(s).")
+    else:
+        print("Deterministic caption fallback: timed across the real voice duration.")
+
+    return normalized
+
+
 def _rebuild_plan_timing(plan, narration, audio_path):
     """
     Validate the saved caption plan against the actual voice and only replace
@@ -937,11 +1085,25 @@ def _rebuild_plan_timing(plan, narration, audio_path):
         return _extend_group_display_windows(plan, duration)
 
     aligned = caption_segments(audio_path, narration)
-    if not aligned:
+    if aligned:
+        return _extend_group_display_windows(
+            _groups_from_aligned_words(aligned, plan=plan),
+            duration,
+        )
+
+    # Whisper is optional. When it is unavailable, use the audio pieces already
+    # generated by voice_engine.py so caption timing still follows the real
+    # spoken audio. Never fall back to rendering the entire narration at once.
+    fallback_aligned = _deterministic_fallback_alignment(
+        narration,
+        duration,
+        plan=plan,
+    )
+    if not fallback_aligned:
         return []
 
     return _extend_group_display_windows(
-        _groups_from_aligned_words(aligned, plan=plan),
+        _groups_from_aligned_words(fallback_aligned, plan=plan),
         duration,
     )
 
@@ -1417,7 +1579,57 @@ def build_captions(narration):
         if clips:
             return clips
 
-    return [make_caption(narration, 0, get_audio_duration())]
+    # Last-resort safety net: still create readable grouped captions instead of
+    # placing the complete narration into one TextClip. This path should be
+    # reached only when both Whisper and deterministic audio-part timing fail.
+    duration = get_audio_duration()
+    fallback_aligned = _deterministic_fallback_alignment(
+        narration,
+        duration,
+        plan=plan,
+    )
+    if fallback_aligned:
+        brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
+        theme = choose_caption_theme(narration, None, brief=brief)
+        font = resolve_caption_font(theme)
+        fallback_groups = _extend_group_display_windows(
+            _groups_from_aligned_words(fallback_aligned, plan=plan),
+            duration,
+        )
+        clips = []
+        for group in fallback_groups:
+            clips.extend(make_caption_group(group, font, theme=theme))
+        if clips:
+            return clips
+
+    # Absolute emergency fallback for an environment with no usable timing
+    # source. Keep it small enough to be readable, and group the narration so
+    # the entire script is never displayed simultaneously.
+    emergency_words = _narration_tokens(narration)
+    if not emergency_words:
+        return []
+
+    style_lookup = _style_lookup_from_plan(plan or [])
+    emergency = []
+    word_ranges = _weighted_time_split(0.0, max(0.4, duration), emergency_words)
+    for word, (start, end) in zip(emergency_words, word_ranges):
+        emergency.append({
+            "word": word,
+            "start": start,
+            "end": end,
+            **style_lookup.get(
+                _normalize_token(word),
+                {"style": "normal", "color": DEFAULT_NORMAL, "animation": "fade"},
+            ),
+        })
+
+    brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
+    theme = choose_caption_theme(narration, None, brief=brief)
+    font = resolve_caption_font(theme)
+    clips = []
+    for group in _groups_from_aligned_words(emergency, plan=plan):
+        clips.extend(make_caption_group(group, font, theme=theme))
+    return clips
 
 
 # =====================================================
