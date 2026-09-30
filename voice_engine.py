@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import subprocess
@@ -9,6 +10,7 @@ OUTPUT.mkdir(exist_ok=True)
 
 
 VOICE_OUTPUT = OUTPUT / "voice.wav"
+VOICE_TIMESTAMPS_OUTPUT = OUTPUT / "voice_word_timestamps.json"
 
 
 # =====================================================
@@ -333,6 +335,86 @@ def calculate_pause(sentence):
 
 
 # =====================================================
+# KOKORO WORD TIMING CAPTURE
+# =====================================================
+
+def extract_kokoro_word_timestamps(result):
+
+    """
+    Extract Kokoro/Misaki word timestamps from the exact Result object used
+    to synthesize an audio part. This records timing only; it does not change
+    the generated audio, speed, voice, or sentence-processing pipeline.
+    """
+
+    tokens = getattr(result, "tokens", None)
+
+    if not tokens:
+        return []
+
+    timestamps = []
+
+    for token in tokens:
+
+        text = str(
+            getattr(token, "text", "")
+            or ""
+        ).strip()
+
+        if not text:
+            continue
+
+        try:
+            start = float(
+                getattr(
+                    token,
+                    "start_ts",
+                    None
+                )
+            )
+            end = float(
+                getattr(
+                    token,
+                    "end_ts",
+                    None
+                )
+            )
+        except (TypeError, ValueError):
+            continue
+
+        if end <= start:
+            continue
+
+        # Keep actual spoken lexical tokens. Pure punctuation/whitespace is
+        # not needed for caption word timing and can otherwise create duplicate
+        # or zero-width entries.
+        if not re.search(r"[A-Za-z0-9]", text):
+            continue
+
+        timestamps.append({
+            "word": text,
+            "start": round(start, 3),
+            "end": round(end, 3),
+        })
+
+    return timestamps
+
+
+def save_voice_word_timestamps(timestamps):
+
+    with open(
+        VOICE_TIMESTAMPS_OUTPUT,
+        "w",
+        encoding="utf-8"
+    ) as f:
+        json.dump(
+            timestamps,
+            f,
+            indent=2,
+            ensure_ascii=False
+        )
+
+
+# =====================================================
 # GENERATE KOKORO AUDIO PARTS
 # =====================================================
 
@@ -440,6 +522,8 @@ def generate_parts(narration, voice_profile=None):
 
     audio_files = []
 
+    generated_part_timings = {}
+
 
     for index, sentence in enumerate(sentences):
 
@@ -489,21 +573,44 @@ def generate_parts(narration, voice_profile=None):
         generated = False
 
 
-        for _, _, audio in generator:
+        for generated_result in generator:
 
             import soundfile as sf
 
 
-            sf.write(
-
-                filename,
-
-                audio,
-
-                SAMPLE_RATE
-
+            # Preserve backward compatibility with older Kokoro builds whose
+            # generator yields an iterable 3-tuple, while using the Result
+            # object directly when available so its exact word timestamps are
+            # captured from the same synthesis pass.
+            audio = getattr(
+                generated_result,
+                "audio",
+                None
             )
 
+            if audio is None:
+
+                try:
+                    _, _, audio = generated_result
+                except (TypeError, ValueError):
+                    audio = None
+
+            if audio is None:
+                continue
+
+            sf.write(
+                filename,
+                audio,
+                SAMPLE_RATE
+            )
+
+            part_word_timestamps = extract_kokoro_word_timestamps(
+                generated_result
+            )
+
+            # Store the sentence-local timestamps for now. The exact absolute
+            # timeline is assigned below after all part/silence files exist.
+            generated_part_timings[index] = part_word_timestamps
 
             generated = True
 
@@ -553,6 +660,77 @@ def generate_parts(narration, voice_profile=None):
                 silence_file
             )
 
+
+    # Build one absolute word-timing timeline using the exact order and actual
+    # durations of voice_part_*.wav and silence_*.wav. This mirrors the concat
+    # order used later by combine_audio(), so caption time never drifts.
+    absolute_timestamps = []
+    timeline_cursor = 0.0
+
+    import soundfile as sf
+
+    for index, sentence in enumerate(sentences):
+
+        part_path = OUTPUT / f"voice_part_{index}.wav"
+
+        try:
+            part_audio, part_sample_rate = sf.read(
+                part_path,
+                dtype="int16"
+            )
+            part_frames = len(part_audio)
+            part_duration = (
+                float(part_frames) / float(part_sample_rate)
+                if part_sample_rate
+                else 0.0
+            )
+        except Exception:
+            part_duration = 0.0
+
+        for item in generated_part_timings.get(index, []):
+
+            absolute_timestamps.append({
+                "word": item["word"],
+                "start": round(
+                    timeline_cursor + item["start"],
+                    3
+                ),
+                "end": round(
+                    timeline_cursor + item["end"],
+                    3
+                )
+            })
+
+        timeline_cursor += part_duration
+
+        silence_path = OUTPUT / f"silence_{index}.wav"
+
+        if silence_path.exists():
+            try:
+                silence_audio, silence_sample_rate = sf.read(
+                    silence_path,
+                    dtype="int16"
+                )
+                silence_frames = len(silence_audio)
+                silence_duration = (
+                    float(silence_frames) / float(silence_sample_rate)
+                    if silence_sample_rate
+                    else 0.0
+                )
+                timeline_cursor += silence_duration
+            except Exception:
+                pass
+
+    # Only replace the timing sidecar with real Kokoro timestamps when every
+    # spoken word was captured. Partial timing data must not be mistaken for a
+    # complete synchronized caption timeline.
+    expected_word_count = len(re.findall(r"\b[\w']+\b", narration))
+
+    if (
+        absolute_timestamps
+        and len(absolute_timestamps) == expected_word_count
+    ):
+        save_voice_word_timestamps(absolute_timestamps)
 
     return audio_files
 
