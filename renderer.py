@@ -38,6 +38,7 @@ except ImportError:
         ImageClip,
         AudioFileClip,
         CompositeAudioClip,
+        CompositeVideoClip,
         concatenate_videoclips,
         ColorClip,
         TextClip,
@@ -922,11 +923,154 @@ def _groups_from_aligned_words(words, plan=None, max_words=5):
     return groups
 
 
+def _voice_sentence_timing(audio_duration, sentence_count=None):
+    """Reconstruct sentence-level timing from the audio parts already produced by the voice engine."""
+    part_paths = sorted(
+        OUTPUT.glob("voice_part_*.wav"),
+        key=lambda path: int(re.search(r"(\d+)$", path.stem).group(1))
+        if re.search(r"(\d+)$", path.stem)
+        else 0,
+    )
+
+    if sentence_count is not None:
+        part_paths = part_paths[:max(0, int(sentence_count))]
+
+    if not part_paths:
+        return []
+
+    timings = []
+    cursor = 0.0
+
+    for index, part_path in enumerate(part_paths):
+        try:
+            part = AudioFileClip(str(part_path))
+            part_duration = max(0.0, float(part.duration))
+        except Exception:
+            return []
+        finally:
+            try:
+                safe_close(part)
+            except UnboundLocalError:
+                pass
+
+        start = cursor
+        end = min(float(audio_duration), start + part_duration)
+        if end > start:
+            timings.append((start, end))
+        cursor = end
+
+        silence_path = OUTPUT / f"silence_{index}.wav"
+        if silence_path.exists():
+            try:
+                silence = AudioFileClip(str(silence_path))
+                silence_duration = max(0.0, float(silence.duration))
+                safe_close(silence)
+            except Exception:
+                silence_duration = 0.0
+            cursor = min(float(audio_duration), cursor + silence_duration)
+
+    return timings
+
+
+def _fallback_word_timings_from_plan(plan, narration, audio_duration):
+    """Create deterministic word timings without ever collapsing the whole narration into one caption."""
+    if not plan or not narration or audio_duration <= 0:
+        return []
+
+    target_words = _narration_tokens(narration)
+    flat_plan_words = _flatten_plan_words(plan)
+    if len(target_words) != len(flat_plan_words):
+        return []
+
+    # The voice engine creates one voice_part per spoken sentence, followed by
+    # an optional silence file. Use those real durations first so caption timing
+    # follows the actual audio structure rather than a fixed global word rate.
+    sentence_texts = re.split(r'(?<=[.!?])\s+', str(narration).strip())
+    sentence_tokens = [_narration_tokens(text) for text in sentence_texts if text.strip()]
+    sentence_timings = _voice_sentence_timing(audio_duration, len(sentence_tokens))
+
+    if sentence_timings and len(sentence_timings) == len(sentence_tokens):
+        timing_pairs = []
+        token_index = 0
+        for (start, end), tokens in zip(sentence_timings, sentence_tokens):
+            local = _weighted_time_split(start, end, tokens)
+            timing_pairs.extend(local)
+            token_index += len(tokens)
+        if len(timing_pairs) == len(target_words):
+            return [
+                {
+                    "word": word,
+                    "start": round(start, 3),
+                    "end": round(max(start + 0.01, end), 3),
+                }
+                for word, (start, end) in zip(target_words, timing_pairs)
+            ]
+
+    # Last-resort deterministic fallback: distribute the available audio time
+    # by word length. This keeps the caption readable and approximately paced
+    # even when the optional word-alignment model is unavailable.
+    timing_pairs = _weighted_time_split(0.0, float(audio_duration), target_words)
+    return [
+        {
+            "word": word,
+            "start": round(start, 3),
+            "end": round(max(start + 0.01, end), 3),
+        }
+        for word, (start, end) in zip(target_words, timing_pairs)
+    ]
+
+
+def _groups_from_fallback_plan(plan, narration, audio_duration):
+    """Apply fallback timings to the existing caption grouping and preserve all styling."""
+    timings = _fallback_word_timings_from_plan(plan, narration, audio_duration)
+    if not timings:
+        return []
+
+    style_lookup = _style_lookup_from_plan(plan)
+    groups = []
+    offset = 0
+
+    for item in plan:
+        raw_words = item.get("words", [])
+        if not raw_words:
+            continue
+
+        words = []
+        for timing in timings[offset:offset + len(raw_words)]:
+            style = style_lookup.get(
+                _normalize_token(timing["word"]),
+                {
+                    "style": "normal",
+                    "color": DEFAULT_NORMAL,
+                    "animation": "fade",
+                },
+            )
+            words.append(
+                {
+                    "word": str(timing["word"]).upper(),
+                    "start": timing["start"],
+                    "end": timing["end"],
+                    **style,
+                }
+            )
+        offset += len(raw_words)
+
+        if not words:
+            continue
+
+        groups.append(
+            {
+                "start": words[0]["start"],
+                "end": words[-1]["end"],
+                "words": words,
+            }
+        )
+
+    return _extend_group_display_windows(groups, audio_duration)
+
+
 def _rebuild_plan_timing(plan, narration, audio_path):
-    """
-    Validate the saved caption plan against the actual voice and only replace
-    timestamps when the plan came from the old fixed-duration fallback.
-    """
+    """Validate the saved caption plan and rebuild timing without ever using a full-narration overlay."""
     duration = get_audio_duration()
 
     if (
@@ -937,13 +1081,17 @@ def _rebuild_plan_timing(plan, narration, audio_path):
         return _extend_group_display_windows(plan, duration)
 
     aligned = caption_segments(audio_path, narration)
-    if not aligned:
-        return []
+    if aligned:
+        return _extend_group_display_windows(
+            _groups_from_aligned_words(aligned, plan=plan),
+            duration,
+        )
 
-    return _extend_group_display_windows(
-        _groups_from_aligned_words(aligned, plan=plan),
-        duration,
-    )
+    fallback = _groups_from_fallback_plan(plan, narration, duration)
+    if fallback:
+        return fallback
+
+    return []
 
 
 # =====================================================
@@ -1340,6 +1488,7 @@ def make_caption_group(group, font, theme="cinematic"):
 
     return clips
 
+
 def make_caption(text, start, end):
     """Backward-compatible single-caption fallback using MoviePy 2.x syntax."""
     duration = max(0.4, end - start)
@@ -1400,7 +1549,9 @@ def build_captions(narration):
         if clips:
             return clips
 
-    # Final fallback for unusual runs where no aligned caption plan can be made.
+    # Final fallback for unusual runs where the saved plan is unavailable or
+    # cannot be aligned. Keep captions chunked and time-bounded instead of
+    # rendering the entire narration as one oversized TextClip.
     timings = caption_segments(audio, narration)
 
     if timings:
@@ -1417,7 +1568,56 @@ def build_captions(narration):
         if clips:
             return clips
 
-    return [make_caption(narration, 0, get_audio_duration())]
+    duration = get_audio_duration()
+    fallback_timings = _weighted_time_split(
+        0.0,
+        duration,
+        _narration_tokens(narration),
+    )
+    if fallback_timings:
+        words = [
+            {
+                "word": token.upper(),
+                "start": round(start, 3),
+                "end": round(max(start + 0.01, end), 3),
+                "style": "normal",
+                "color": DEFAULT_NORMAL,
+                "animation": "fade",
+            }
+            for token, (start, end) in zip(_narration_tokens(narration), fallback_timings)
+        ]
+        groups = []
+        current = []
+        for word in words:
+            current.append(word)
+            if len(current) >= 5:
+                groups.append(
+                    {
+                        "start": current[0]["start"],
+                        "end": current[-1]["end"],
+                        "words": current,
+                    }
+                )
+                current = []
+        if current:
+            groups.append(
+                {
+                    "start": current[0]["start"],
+                    "end": current[-1]["end"],
+                    "words": current,
+                }
+            )
+
+        brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
+        theme = choose_caption_theme(narration, None, brief=brief)
+        font = resolve_caption_font(theme)
+        clips = []
+        for group in _extend_group_display_windows(groups, duration):
+            clips.extend(make_caption_group(group, font, theme=theme))
+        if clips:
+            return clips
+
+    return []
 
 
 # =====================================================
