@@ -1,5 +1,6 @@
 import json
 import re
+from difflib import SequenceMatcher
 from pathlib import Path
 
 
@@ -7,6 +8,7 @@ OUTPUT = Path("output")
 OUTPUT.mkdir(exist_ok=True)
 
 CAPTION_OUTPUT = OUTPUT / "caption_plan.json"
+VOICE_TIMESTAMPS_OUTPUT = OUTPUT / "voice_word_timestamps.json"
 
 
 # =====================================================
@@ -304,6 +306,185 @@ def create_groups(
 
 
 # =====================================================
+# EXACT KOKORO AUDIO TIMING
+# =====================================================
+
+def normalize_word(word):
+
+    return re.sub(
+        r"[^a-z0-9']+",
+        "",
+        str(word or "").lower()
+    )
+
+
+def load_kokoro_word_timestamps(narration, audio_path=None):
+
+    """
+    Load the word timings captured during the original Kokoro synthesis pass.
+
+    The timing file is produced by voice_engine.py from the same generated
+    audio parts that are concatenated into voice.wav. Therefore these are real
+    synthesis timestamps, not estimated duration splits.
+    """
+
+    if not VOICE_TIMESTAMPS_OUTPUT.exists():
+        return []
+
+    try:
+        with open(
+            VOICE_TIMESTAMPS_OUTPUT,
+            "r",
+            encoding="utf-8"
+        ) as f:
+            data = json.load(f)
+    except Exception as e:
+        print(
+            "Kokoro word timing file could not be loaded:",
+            e
+        )
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    target = tokenize(clean_text(narration))
+
+    source = []
+
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+
+        word = str(
+            item.get("word", "")
+        ).strip()
+
+        if not word:
+            continue
+
+        try:
+            start = float(item["start"])
+            end = float(item["end"])
+        except (TypeError, ValueError, KeyError):
+            continue
+
+        if end <= start:
+            continue
+
+        source.append({
+            "word": word,
+            "start": start,
+            "end": end
+        })
+
+    if not source or not target:
+        return []
+
+    target_norm = [
+        normalize_word(word)
+        for word in target
+    ]
+
+    source_norm = [
+        normalize_word(item["word"])
+        for item in source
+    ]
+
+    if not all(target_norm) or not all(source_norm):
+        return []
+
+    matcher = SequenceMatcher(
+        None,
+        target_norm,
+        source_norm,
+        autojunk=False
+    )
+
+    # The TTS timestamps are exact for the source sequence. Require a complete
+    # narration match here rather than silently fabricating missing timing.
+    ratio = matcher.ratio()
+
+    if target_norm != source_norm and ratio < 0.98:
+        return []
+
+    aligned = [None] * len(target)
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+
+        if tag == "equal":
+            for i, j in zip(
+                range(i1, i2),
+                range(j1, j2)
+            ):
+                aligned[i] = (
+                    source[j]["start"],
+                    source[j]["end"]
+                )
+
+        elif tag in {"replace", "delete"} and j2 > j1:
+            start = source[j1]["start"]
+            end = source[j2 - 1]["end"]
+            span_words = target[i1:i2]
+            weights = [
+                max(
+                    1,
+                    len(normalize_word(w))
+                )
+                for w in span_words
+            ]
+            total_weight = float(sum(weights)) or float(len(span_words))
+            cursor = start
+
+            for offset, weight in enumerate(weights):
+                next_cursor = (
+                    end
+                    if offset == len(weights) - 1
+                    else cursor + (end - start) * (weight / total_weight)
+                )
+                aligned[i1 + offset] = (
+                    cursor,
+                    max(cursor + 0.01, next_cursor)
+                )
+                cursor = next_cursor
+
+    if any(item is None for item in aligned):
+        return []
+
+    result = []
+    previous_end = 0.0
+
+    for word, timing in zip(target, aligned):
+        start, end = timing
+        start = max(previous_end, start)
+        end = max(start + 0.01, end)
+
+        result.append({
+            "word": word,
+            "start": round(start, 3),
+            "end": round(end, 3)
+        })
+
+        previous_end = end
+
+    if audio_path:
+        try:
+            import soundfile as sf
+            audio_info = sf.info(audio_path)
+            audio_duration = (
+                float(audio_info.frames) / float(audio_info.samplerate)
+                if audio_info.samplerate
+                else 0.0
+            )
+            if result and result[-1]["end"] > audio_duration + 0.05:
+                return []
+        except Exception:
+            pass
+
+    return result
+
+
+# =====================================================
 # FALLBACK TIMING
 # =====================================================
 
@@ -385,7 +566,16 @@ def create_caption_plan(
     aligned_words=[]
 
 
-    if audio_path:
+    # Prefer timestamps captured during the original Kokoro synthesis pass.
+    # This keeps captions tied to the exact audio that will be rendered and
+    # avoids introducing a second, independent timing model.
+    aligned_words = load_kokoro_word_timestamps(
+        narration,
+        audio_path=audio_path
+    )
+
+
+    if not aligned_words and audio_path:
 
         aligned_words = get_word_timestamps(
             audio_path
