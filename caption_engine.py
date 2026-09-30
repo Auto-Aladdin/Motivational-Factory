@@ -1,6 +1,8 @@
 import json
 import re
+import wave
 from pathlib import Path
+from difflib import SequenceMatcher
 
 
 OUTPUT = Path("output")
@@ -96,12 +98,27 @@ def clean_text(text):
     return text
 
 
-
 def tokenize(text):
 
     return re.findall(
         r"\b[\w']+\b",
         text
+    )
+
+
+def normalize_word(word):
+
+    word = str(word or "").lower().strip()
+
+    word = word.replace(
+        "’",
+        "'"
+    )
+
+    return re.sub(
+        r"[^a-z0-9']+",
+        "",
+        word
     )
 
 
@@ -111,133 +128,824 @@ def tokenize(text):
 
 def detect_style(word):
 
-    lower = word.lower()
-
+    lower = normalize_word(word)
 
     if lower in PAIN_WORDS:
 
         return {
-            "style":"pain",
-            "color":COLORS["pain"],
-            "animation":"impact_pop"
+            "style": "pain",
+            "color": COLORS["pain"],
+            "animation": "impact_pop"
         }
-
 
     if lower in HOPE_WORDS:
 
         return {
-            "style":"hope",
-            "color":COLORS["hope"],
-            "animation":"soft_glow"
+            "style": "hope",
+            "color": COLORS["hope"],
+            "animation": "soft_glow"
         }
-
 
     if lower in HIGH_IMPACT_WORDS:
 
         return {
-            "style":"highlight",
-            "color":COLORS["highlight"],
-            "animation":"impact_pop"
+            "style": "highlight",
+            "color": COLORS["highlight"],
+            "animation": "impact_pop"
         }
-
 
     return {
 
-        "style":"normal",
-        "color":COLORS["normal"],
-        "animation":"fade"
+        "style": "normal",
+        "color": COLORS["normal"],
+        "animation": "fade"
 
     }
 
 
-
 # =====================================================
-# OPTIONAL AUDIO ALIGNMENT
+# AUDIO HELPERS
 # =====================================================
 
-def get_word_timestamps(
-        audio_path,
-        language="en"
-):
-
-    """
-    Uses local Whisper alignment.
-
-    Returns:
-
-    [
-       {
-        word:"",
-        start:0.0,
-        end:0.5
-       }
-    ]
-
-    """
+def get_wav_duration(audio_path):
 
     try:
 
-        from faster_whisper import WhisperModel
+        with wave.open(
+            str(audio_path),
+            "rb"
+        ) as audio:
+
+            frames = audio.getnframes()
+
+            rate = audio.getframerate()
+
+            if rate <= 0:
+                return 0.0
+
+            return frames / float(rate)
+
+    except Exception:
+
+        return 0.0
 
 
-        model = WhisperModel(
-            "small",
-            compute_type="int8"
+def numbered_audio_parts():
+
+    parts = []
+
+    for path in OUTPUT.glob(
+        "voice_part_*.wav"
+    ):
+
+        match = re.search(
+            r"voice_part_(\d+)\.wav$",
+            path.name
         )
 
+        if not match:
+            continue
 
-        segments, info = model.transcribe(
-
-            audio_path,
-
-            word_timestamps=True,
-
-            language=language
-
+        parts.append(
+            (
+                int(match.group(1)),
+                path
+            )
         )
 
+    parts.sort(
+        key=lambda item: item[0]
+    )
 
-        words=[]
-
-
-        for segment in segments:
-
-            if segment.words:
-
-                for item in segment.words:
-
-                    words.append({
-
-                        "word":
-                        item.word.strip(),
-
-                        "start":
-                        round(
-                            item.start,
-                            3
-                        ),
-
-                        "end":
-                        round(
-                            item.end,
-                            3
-                        )
-
-                    })
+    return parts
 
 
-        return words
+def silence_duration(index):
+
+    path = OUTPUT / f"silence_{index}.wav"
+
+    if not path.exists():
+        return 0.0
+
+    return get_wav_duration(
+        path
+    )
 
 
-    except Exception as e:
+# =====================================================
+# WHISPER MODEL
+# =====================================================
 
-        print(
-            "Whisper alignment unavailable:",
-            e
-        )
+def load_whisper_model():
 
+    from faster_whisper import WhisperModel
+
+    return WhisperModel(
+        "small.en",
+        device="cpu",
+        compute_type="int8"
+    )
+
+
+# =====================================================
+# REAL AUDIO WORD TIMESTAMPS
+# =====================================================
+
+def transcribe_audio(
+        model,
+        audio_path,
+        expected_text=None
+):
+
+    options = {
+
+        "word_timestamps": True,
+
+        "language": "en",
+
+        "beam_size": 5,
+
+        "best_of": 5,
+
+        "temperature": 0,
+
+        "condition_on_previous_text": False,
+
+        "vad_filter": False
+
+    }
+
+    if expected_text:
+
+        options["initial_prompt"] = expected_text
+
+    segments, _ = model.transcribe(
+        str(audio_path),
+        **options
+    )
+
+    words = []
+
+    for segment in segments:
+
+        if not segment.words:
+            continue
+
+        for item in segment.words:
+
+            token = str(
+                item.word or ""
+            ).strip()
+
+            if not token:
+                continue
+
+            try:
+
+                start = float(
+                    item.start
+                )
+
+                end = float(
+                    item.end
+                )
+
+            except (
+                TypeError,
+                ValueError
+            ):
+
+                continue
+
+            if end < start:
+                end = start
+
+            words.append({
+
+                "word": token,
+
+                "start": start,
+
+                "end": end
+
+            })
+
+    return words
+
+
+# =====================================================
+# WEIGHTED ALIGNMENT FOR RARE TRANSCRIPTION DIFFERENCES
+# =====================================================
+
+def weighted_split(
+        start,
+        end,
+        words
+):
+
+    if not words:
         return []
 
+    start = float(start)
+
+    end = max(
+        start,
+        float(end)
+    )
+
+    weights = [
+
+        max(
+            1,
+            len(
+                normalize_word(word)
+            )
+        )
+
+        for word in words
+
+    ]
+
+    total = float(
+        sum(weights)
+    ) or float(
+        len(words)
+    )
+
+    result = []
+
+    cursor = start
+
+    for index, weight in enumerate(weights):
+
+        if index == len(words) - 1:
+
+            next_cursor = end
+
+        else:
+
+            next_cursor = (
+
+                cursor
+                +
+                (end - start)
+                *
+                (weight / total)
+
+            )
+
+        result.append(
+            (
+                cursor,
+                next_cursor
+            )
+        )
+
+        cursor = next_cursor
+
+    return result
+
+
+# =====================================================
+# MAP WHISPER TIMINGS TO EXACT NARRATION WORDS
+# =====================================================
+
+def align_transcript_to_text(
+        expected_text,
+        transcript_words,
+        audio_duration
+):
+
+    target_words = tokenize(
+        expected_text
+    )
+
+    transcript_words = [
+
+        word
+
+        for word in transcript_words
+
+        if normalize_word(
+            word.get(
+                "word",
+                ""
+            )
+        )
+
+    ]
+
+    if not target_words or not transcript_words:
+
+        return [], 0.0
+
+    target_normalized = [
+
+        normalize_word(word)
+
+        for word in target_words
+
+    ]
+
+    transcript_normalized = [
+
+        normalize_word(
+            word.get(
+                "word",
+                ""
+            )
+        )
+
+        for word in transcript_words
+
+    ]
+
+    matcher = SequenceMatcher(
+
+        None,
+
+        target_normalized,
+
+        transcript_normalized,
+
+        autojunk=False
+
+    )
+
+    opcodes = matcher.get_opcodes()
+
+    exact_matches = sum(
+
+        i2 - i1
+
+        for tag, i1, i2, j1, j2
+        in opcodes
+
+        if tag == "equal"
+
+    )
+
+    match_ratio = (
+
+        exact_matches
+        /
+        float(
+            max(
+                1,
+                len(target_words)
+            )
+        )
+
+    )
+
+    aligned = [
+        None
+        for _ in target_words
+    ]
+
+    for (
+        tag,
+        i1,
+        i2,
+        j1,
+        j2
+    ) in opcodes:
+
+        if tag == "equal":
+
+            for (
+                target_index,
+                transcript_index
+            ) in zip(
+
+                range(i1, i2),
+
+                range(j1, j2)
+
+            ):
+
+                source = transcript_words[
+                    transcript_index
+                ]
+
+                start = max(
+                    0.0,
+                    float(
+                        source["start"]
+                    )
+                )
+
+                end = max(
+                    start + 0.005,
+                    float(
+                        source["end"]
+                    )
+                )
+
+                if audio_duration > 0:
+
+                    start = min(
+                        start,
+                        audio_duration
+                    )
+
+                    end = min(
+                        end,
+                        audio_duration
+                    )
+
+                    end = max(
+                        start + 0.005,
+                        end
+                    )
+
+                aligned[
+                    target_index
+                ] = (
+                    start,
+                    end
+                )
+
+        elif (
+            tag == "replace"
+            and j2 > j1
+        ):
+
+            start = float(
+                transcript_words[j1][
+                    "start"
+                ]
+            )
+
+            end = float(
+                transcript_words[j2 - 1][
+                    "end"
+                ]
+            )
+
+            split = weighted_split(
+
+                start,
+
+                end,
+
+                target_words[
+                    i1:i2
+                ]
+
+            )
+
+            for offset, pair in enumerate(
+                split
+            ):
+
+                aligned[
+                    i1 + offset
+                ] = pair
+
+    # -------------------------------------------------
+    # FILL UNMATCHED RANGES BETWEEN REAL AUDIO ANCHORS
+    # -------------------------------------------------
+
+    index = 0
+
+    while index < len(aligned):
+
+        if aligned[index] is not None:
+
+            index += 1
+
+            continue
+
+        run_start = index
+
+        while (
+            index < len(aligned)
+            and aligned[index] is None
+        ):
+
+            index += 1
+
+        run_end = index
+
+        left_end = 0.0
+
+        if (
+            run_start > 0
+            and aligned[
+                run_start - 1
+            ] is not None
+        ):
+
+            left_end = aligned[
+                run_start - 1
+            ][1]
+
+        right_start = float(
+            audio_duration
+        )
+
+        if (
+            run_end < len(aligned)
+            and aligned[run_end] is not None
+        ):
+
+            right_start = aligned[
+                run_end
+            ][0]
+
+        if right_start < left_end:
+
+            right_start = left_end
+
+        split = weighted_split(
+
+            left_end,
+
+            right_start,
+
+            target_words[
+                run_start:run_end
+            ]
+
+        )
+
+        for offset, pair in enumerate(
+            split
+        ):
+
+            aligned[
+                run_start + offset
+            ] = pair
+
+    # -------------------------------------------------
+    # FINAL MONOTONIC TIMESTAMP PASS
+    # -------------------------------------------------
+
+    result = []
+
+    previous_end = 0.0
+
+    for word, pair in zip(
+        target_words,
+        aligned
+    ):
+
+        if pair is None:
+
+            start = previous_end
+
+            end = (
+                min(
+                    audio_duration,
+                    start + 0.01
+                )
+                if audio_duration > 0
+                else
+                start + 0.01
+            )
+
+        else:
+
+            start, end = pair
+
+            start = max(
+                previous_end,
+                float(start)
+            )
+
+            end = max(
+                start + 0.005,
+                float(end)
+            )
+
+            if audio_duration > 0:
+
+                start = min(
+                    start,
+                    audio_duration
+                )
+
+                end = min(
+                    end,
+                    audio_duration
+                )
+
+                end = max(
+                    start + 0.005,
+                    end
+                )
+
+        result.append({
+
+            "word": word,
+
+            "start": round(
+                start,
+                3
+            ),
+
+            "end": round(
+                end,
+                3
+            )
+
+        })
+
+        previous_end = end
+
+    return (
+        result,
+        match_ratio
+    )
+
+
+def get_word_timestamps(
+        audio_path,
+        language="en",
+        expected_text=None
+):
+
+    model = load_whisper_model()
+
+    return transcribe_audio(
+
+        model,
+
+        audio_path,
+
+        expected_text=expected_text
+
+    )
+
+
+# =====================================================
+# SENTENCE-LEVEL AUDIO ALIGNMENT
+# =====================================================
+
+def align_from_sentence_parts(
+        narration,
+        model
+):
+
+    """
+    IMPORTANT:
+
+    voice_engine.py creates:
+
+        voice_part_0.wav
+        silence_0.wav
+        voice_part_1.wav
+        silence_1.wav
+        ...
+
+    The final voice.wav is literally those files concatenated together.
+
+    Therefore each sentence is aligned against its exact original audio part,
+    then its position is restored using the actual generated silence duration.
+
+    This prevents cumulative forward/backward caption drift.
+    """
+
+    sentences = [
+
+        sentence.strip()
+
+        for sentence
+        in re.split(
+            r"(?<=[.!?])\s+",
+            narration
+        )
+
+        if sentence.strip()
+
+    ]
+
+    parts = numbered_audio_parts()
+
+    if (
+        not sentences
+        or len(parts) < len(sentences)
+    ):
+
+        return [], 0.0
+
+    all_words = []
+
+    cursor = 0.0
+
+    ratios = []
+
+    for index, sentence in enumerate(
+        sentences
+    ):
+
+        _, audio_part = parts[index]
+
+        part_duration = get_wav_duration(
+            audio_part
+        )
+
+        if part_duration <= 0:
+
+            return [], 0.0
+
+        transcript = transcribe_audio(
+
+            model,
+
+            audio_part,
+
+            expected_text=sentence
+
+        )
+
+        aligned, ratio = align_transcript_to_text(
+
+            sentence,
+
+            transcript,
+
+            part_duration
+
+        )
+
+        if not aligned:
+
+            return [], 0.0
+
+        ratios.append(
+            ratio
+        )
+
+        for word in aligned:
+
+            absolute_start = max(
+
+                0.0,
+
+                cursor
+                +
+                word["start"]
+
+            )
+
+            absolute_end = max(
+
+                absolute_start + 0.005,
+
+                cursor
+                +
+                word["end"]
+
+            )
+
+            all_words.append({
+
+                "word":
+                word["word"],
+
+                "start":
+                round(
+                    absolute_start,
+                    3
+                ),
+
+                "end":
+                round(
+                    absolute_end,
+                    3
+                )
+
+            })
+
+        # EXACT SAME ORDER USED BY voice_engine.py:
+        #
+        # voice_part_N
+        # silence_N
+        #
+        # Then the next voice_part starts.
+        cursor += part_duration
+
+        cursor += silence_duration(
+            index
+        )
+
+    average_ratio = (
+
+        sum(ratios)
+        /
+        max(
+            1,
+            len(ratios)
+        )
+
+    )
+
+    return (
+        all_words,
+        average_ratio
+    )
 
 
 # =====================================================
@@ -249,48 +957,25 @@ def create_groups(
         max_words=5
 ):
 
-    groups=[]
+    groups = []
 
-    current=[]
-
+    current = []
 
     for word in words:
 
-
-        current.append(word)
-
-
-        text = " ".join(
-            [
-                w["word"]
-                for w in current
-            ]
+        current.append(
+            word
         )
 
-
-        # Natural breaks
-
-        if (
-
-            len(current)>=max_words
-
-            or text.endswith(
-                (
-                    ".",
-                    ",",
-                    "!",
-                    "?"
-                )
-            )
-
-        ):
+        # Preserve the original five-word caption grouping.
+        # Timing is now supplied by the actual spoken audio.
+        if len(current) >= max_words:
 
             groups.append(
                 current
             )
 
-            current=[]
-
+            current = []
 
     if current:
 
@@ -298,51 +983,238 @@ def create_groups(
             current
         )
 
-
     return groups
 
 
-
 # =====================================================
-# FALLBACK TIMING
+# AUDIO-AWARE FALLBACK
 # =====================================================
 
-def fallback_alignment(words):
+def sentence_fallback_timings(
+        narration
+):
 
-    result=[]
+    sentences = [
 
-    time=0
+        sentence.strip()
+
+        for sentence
+        in re.split(
+            r"(?<=[.!?])\s+",
+            narration
+        )
+
+        if sentence.strip()
+
+    ]
+
+    parts = numbered_audio_parts()
+
+    if (
+        not sentences
+        or len(parts) < len(sentences)
+    ):
+
+        return []
+
+    result = []
+
+    cursor = 0.0
+
+    for index, sentence in enumerate(
+        sentences
+    ):
+
+        _, audio_part = parts[index]
+
+        part_duration = get_wav_duration(
+            audio_part
+        )
+
+        if part_duration <= 0:
+
+            return []
+
+        start = cursor
+
+        end = cursor + part_duration
+
+        result.append(
+            (
+                start,
+                end,
+                tokenize(sentence)
+            )
+        )
+
+        cursor = end
+
+        cursor += silence_duration(
+            index
+        )
+
+    return result
 
 
-    for word in words:
+def fallback_alignment(
+        words,
+        audio_duration=None,
+        sentence_timings=None
+):
 
-        duration=0.35
+    """
+    Never use the old fixed 0.35-second global clock when real audio exists.
 
+    This fallback uses the actual generated sentence/audio durations, so it
+    cannot accumulate the large forward/backward drift caused by:
 
-        result.append({
+        word 1 = 0.00
+        word 2 = 0.35
+        word 3 = 0.70
+        ...
 
-            "word":word,
+    """
+
+    if not words:
+
+        return []
+
+    if (
+        audio_duration is None
+        or audio_duration <= 0
+    ):
+
+        duration = 0.35 * len(words)
+
+        return [
+
+            {
+
+                "word": word,
+
+                "start":
+                round(
+                    index * 0.35,
+                    3
+                ),
+
+                "end":
+                round(
+                    (index + 1) * 0.35,
+                    3
+                )
+
+            }
+
+            for index, word
+            in enumerate(words)
+
+        ]
+
+    # -------------------------------------------------
+    # BEST NON-WHISPER FALLBACK:
+    # REAL VOICE PART DURATIONS
+    # -------------------------------------------------
+
+    if sentence_timings:
+
+        result = []
+
+        for (
+            start,
+            end,
+            sentence_words
+        ) in sentence_timings:
+
+            split = weighted_split(
+
+                start,
+
+                end,
+
+                sentence_words
+
+            )
+
+            for word, (
+                word_start,
+                word_end
+            ) in zip(
+                sentence_words,
+                split
+            ):
+
+                result.append({
+
+                    "word": word,
+
+                    "start":
+                    round(
+                        word_start,
+                        3
+                    ),
+
+                    "end":
+                    round(
+                        max(
+                            word_start + 0.005,
+                            word_end
+                        ),
+                        3
+                    )
+
+                })
+
+        if len(result) == len(words):
+
+            return result
+
+    # -------------------------------------------------
+    # WHOLE-AUDIO FALLBACK
+    # -------------------------------------------------
+
+    split = weighted_split(
+
+        0.0,
+
+        float(audio_duration),
+
+        words
+
+    )
+
+    return [
+
+        {
+
+            "word": word,
 
             "start":
             round(
-                time,
+                start,
                 3
             ),
 
             "end":
             round(
-                time+duration,
+                max(
+                    start + 0.005,
+                    end
+                ),
                 3
             )
 
-        })
+        }
 
+        for word, (
+            start,
+            end
+        ) in zip(
+            words,
+            split
+        )
 
-        time+=duration
-
-
-    return result
-
+    ]
 
 
 # =====================================================
@@ -354,85 +1226,208 @@ def create_caption_plan(
         audio_path=None
 ):
 
-
     print(
         "Creating cinematic caption plan..."
     )
-
 
     narration = clean_text(
         narration
     )
 
-    # The factory already creates voice.wav immediately before the caption
-    # stage. When the caller does not explicitly pass an audio path, use that
-    # real generated audio so word timings come from the spoken voice rather
-    # than the old fixed-duration fallback. This does not change pipeline
-    # order or any upstream generation logic.
+    # -------------------------------------------------
+    # USE THE EXACT AUDIO THAT WILL BE RENDERED
+    # -------------------------------------------------
+
     if audio_path is None:
 
-        default_audio = CAPTION_OUTPUT.parent / "voice.wav"
+        default_audio = OUTPUT / "voice.wav"
 
         if default_audio.exists():
-            audio_path = str(default_audio)
 
+            audio_path = str(
+                default_audio
+            )
 
     text_words = tokenize(
         narration
     )
 
+    aligned_words = []
 
-    aligned_words=[]
+    # -------------------------------------------------
+    # REAL AUDIO ALIGNMENT
+    # -------------------------------------------------
 
+    if (
+        audio_path
+        and Path(audio_path).exists()
+    ):
 
-    if audio_path:
-
-        aligned_words = get_word_timestamps(
+        audio_duration = get_wav_duration(
             audio_path
         )
 
+        model = None
 
-    if not aligned_words:
+        # -------------------------------------------------
+        # FIRST: SENTENCE-BY-SENTENCE REAL AUDIO ALIGNMENT
+        # -------------------------------------------------
 
+        try:
+
+            model = load_whisper_model()
+
+            aligned_words, ratio = align_from_sentence_parts(
+
+                narration,
+
+                model
+
+            )
+
+            # Require strong correspondence between the generated audio and
+            # the narration before accepting the sentence-level alignment.
+            if (
+                not aligned_words
+                or ratio < 0.80
+                or len(aligned_words) != len(text_words)
+            ):
+
+                aligned_words = []
+
+        except Exception as e:
+
+            print(
+                "Sentence-level Whisper alignment unavailable:",
+                e
+            )
+
+            aligned_words = []
+
+        # -------------------------------------------------
+        # SECOND: ALIGN THE EXACT FINAL voice.wav
+        # -------------------------------------------------
+
+        if not aligned_words:
+
+            try:
+
+                if model is None:
+
+                    model = load_whisper_model()
+
+                transcript = transcribe_audio(
+
+                    model,
+
+                    audio_path,
+
+                    expected_text=narration
+
+                )
+
+                aligned_words, ratio = align_transcript_to_text(
+
+                    narration,
+
+                    transcript,
+
+                    audio_duration
+
+                )
+
+                if (
+                    not aligned_words
+                    or ratio < 0.70
+                    or len(aligned_words) != len(text_words)
+                ):
+
+                    aligned_words = []
+
+            except Exception as e:
+
+                print(
+                    "Whole-audio Whisper alignment unavailable:",
+                    e
+                )
+
+                aligned_words = []
+
+        # -------------------------------------------------
+        # FINAL AUDIO-AWARE FALLBACK
+        # -------------------------------------------------
+
+        if not aligned_words:
+
+            sentence_timings = sentence_fallback_timings(
+                narration
+            )
+
+            aligned_words = fallback_alignment(
+
+                text_words,
+
+                audio_duration=audio_duration,
+
+                sentence_timings=sentence_timings
+
+            )
+
+    else:
+
+        # This path is only used when there is genuinely no generated audio.
         aligned_words = fallback_alignment(
             text_words
         )
 
-
+    # -------------------------------------------------
+    # GROUP WORDS
+    # -------------------------------------------------
 
     groups = create_groups(
         aligned_words
     )
 
+    captions = []
 
+    # -------------------------------------------------
+    # BUILD FINAL CAPTION PLAN
+    # -------------------------------------------------
 
-    captions=[]
+    for index, group in enumerate(
+        groups
+    ):
 
-
-    for index, group in enumerate(groups):
-
-
-        styled_words=[]
-
+        styled_words = []
 
         for item in group:
-
 
             style = detect_style(
                 item["word"]
             )
 
-
             styled_words.append({
 
                 "word":
-                item["word"].upper(),
+                str(
+                    item["word"]
+                ).upper(),
 
                 "start":
-                item["start"],
+                round(
+                    float(
+                        item["start"]
+                    ),
+                    3
+                ),
 
                 "end":
-                item["end"],
+                round(
+                    float(
+                        item["end"]
+                    ),
+                    3
+                ),
 
                 "style":
                 style["style"],
@@ -445,43 +1440,33 @@ def create_caption_plan(
 
             })
 
-
         captions.append({
 
             "id":
-            index+1,
-
+            index + 1,
 
             "text":
             " ".join(
-                [
-                    x["word"]
-                    for x in styled_words
-                ]
+                x["word"]
+                for x in styled_words
             ),
 
-
             "start":
-            group[0]["start"],
-
+            styled_words[0]["start"],
 
             "end":
-            group[-1]["end"],
-
+            styled_words[-1]["end"],
 
             "words":
             styled_words,
 
-
             "font":
             "Montserrat ExtraBold",
-
 
             "position":
             "lower_center",
 
-
-            "animation":{
+            "animation": {
 
                 "entrance":
                 "smooth_scale",
@@ -499,18 +1484,15 @@ def create_caption_plan(
 
         })
 
-
+    # -------------------------------------------------
+    # OVERWRITE OLD / STALE CAPTION PLAN
+    # -------------------------------------------------
 
     with open(
-
         CAPTION_OUTPUT,
-
         "w",
-
         encoding="utf-8"
-
     ) as f:
-
 
         json.dump(
 
@@ -524,14 +1506,9 @@ def create_caption_plan(
 
         )
 
-
     print(
-
         "Caption plan saved:",
-
         CAPTION_OUTPUT
-
     )
-
 
     return captions
