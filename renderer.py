@@ -18,7 +18,6 @@ remain unchanged.
 import json
 import os
 import re
-import wave
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -923,170 +922,10 @@ def _groups_from_aligned_words(words, plan=None, max_words=5):
     return groups
 
 
-def _wav_duration(path):
-    """Return the exact duration of an existing WAV file."""
-    try:
-        with wave.open(str(path), "rb") as wav_file:
-            frames = wav_file.getnframes()
-            sample_rate = wav_file.getframerate()
-            if sample_rate:
-                return float(frames) / float(sample_rate)
-    except Exception as exc:
-        print("Could not read WAV duration:", path, exc)
-    return 0.0
-
-
-def _split_narration_sentences(narration):
-    """Use the same sentence boundaries as voice_engine.py."""
-    sentences = re.split(r'(?<=[.!?])\s+', str(narration or "").strip())
-    return [sentence.strip() for sentence in sentences if sentence.strip()]
-
-
-def _retime_plan_to_generated_audio(plan, narration, audio_duration):
-    """
-    Re-time the existing caption words to the exact audio assembled by
-    voice_engine.py, without changing caption grouping, styling, or the audio
-    pipeline.
-
-    voice_engine.py writes one voice_part_N.wav followed by silence_N.wav for
-    every narration sentence. Those files are the authoritative sentence
-    boundaries for the deterministic fallback used when caption_plan.json was
-    created by the legacy fixed 0.35-second timing path.
-    """
-    if not plan or audio_duration <= 0:
-        return []
-
-    if not _plan_matches_narration(plan, narration):
-        return []
-
-    sentences = _split_narration_sentences(narration)
-    target_words = _narration_tokens(narration)
-    plan_words = _flatten_plan_words(plan)
-
-    if not sentences or not target_words or len(plan_words) != len(target_words):
-        return []
-
-    sentence_word_counts = []
-    for sentence in sentences:
-        count = len(_narration_tokens(sentence))
-        if count <= 0:
-            return []
-        sentence_word_counts.append(count)
-
-    if sum(sentence_word_counts) != len(target_words):
-        return []
-
-    part_durations = []
-    silence_durations = []
-
-    for index in range(len(sentences)):
-        part_path = OUTPUT / f"voice_part_{index}.wav"
-        silence_path = OUTPUT / f"silence_{index}.wav"
-
-        if not part_path.exists():
-            return []
-
-        part_duration = _wav_duration(part_path)
-        if part_duration <= 0:
-            return []
-
-        part_durations.append(part_duration)
-        silence_durations.append(
-            _wav_duration(silence_path) if silence_path.exists() else 0.0
-        )
-
-    # The generated voice.wav is the exact concat of all voice parts and
-    # silence files. Keep the measured component timeline, while clamping its
-    # final boundary to the actual master WAV duration for numerical safety.
-    component_total = sum(part_durations) + sum(silence_durations)
-    if abs(component_total - float(audio_duration)) > 0.25:
-        return []
-
-    timings = []
-    cursor = 0.0
-    word_offset = 0
-
-    for index, word_count in enumerate(sentence_word_counts):
-        sentence_start = cursor
-        sentence_end = min(
-            float(audio_duration),
-            sentence_start + part_durations[index],
-        )
-
-        sentence_words = target_words[word_offset:word_offset + word_count]
-        split = _weighted_time_split(
-            sentence_start,
-            sentence_end,
-            sentence_words,
-        )
-
-        for word, (start, end) in zip(sentence_words, split):
-            timings.append({
-                "word": word,
-                "start": round(max(0.0, start), 3),
-                "end": round(
-                    min(
-                        float(audio_duration),
-                        max(start + 0.01, end),
-                    ),
-                    3,
-                ),
-            })
-
-        word_offset += word_count
-        cursor = sentence_end + silence_durations[index]
-
-    if len(timings) != len(plan_words):
-        return []
-
-    # Rebuild the original groups using the exact same word order/style, but
-    # replace only their timing. This keeps the visual caption behavior intact.
-    retimed = []
-    offset = 0
-
-    for item in plan:
-        original_words = [
-            word for word in item.get("words", [])
-            if isinstance(word, dict) and str(word.get("word", "")).strip()
-        ]
-
-        if not original_words:
-            continue
-
-        count = len(original_words)
-        if offset + count > len(timings):
-            return []
-
-        words = []
-        for original, timing in zip(
-            original_words,
-            timings[offset:offset + count],
-        ):
-            word = dict(original)
-            word["start"] = timing["start"]
-            word["end"] = timing["end"]
-            words.append(word)
-
-        offset += count
-
-        retimed.append({
-            **item,
-            "start": words[0]["start"],
-            "end": words[-1]["end"],
-            "words": words,
-        })
-
-    if offset != len(timings):
-        return []
-
-    return retimed
-
-
 def _rebuild_plan_timing(plan, narration, audio_path):
     """
-    Keep a valid real-time caption plan unchanged. For the legacy fixed
-    0.35-second plan, re-time the existing words against the exact generated
-    voice parts/silences before attempting any optional Whisper alignment.
+    Validate the saved caption plan against the actual voice and only replace
+    timestamps when the plan came from the old fixed-duration fallback.
     """
     duration = get_audio_duration()
 
@@ -1096,18 +935,6 @@ def _rebuild_plan_timing(plan, narration, audio_path):
         and _plan_has_real_audio_timing(plan, duration)
     ):
         return _extend_group_display_windows(plan, duration)
-
-    # The saved plan's word order and styling are retained. Only its timestamps
-    # are replaced here, using the exact sentence audio boundaries already
-    # produced by voice_engine.py. This prevents timing drift and avoids a
-    # second Whisper pass from becoming the source of a different timeline.
-    retimed_plan = _retime_plan_to_generated_audio(
-        plan,
-        narration,
-        duration,
-    )
-    if retimed_plan:
-        return _extend_group_display_windows(retimed_plan, duration)
 
     aligned = caption_segments(audio_path, narration)
     if not aligned:
