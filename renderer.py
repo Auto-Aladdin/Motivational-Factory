@@ -3,7 +3,7 @@ Motivational Factory Premium Shorts Renderer
 
 Targeted output-layer improvements only:
 - MoviePy 2.x-compatible TextClip usage
-- Uses the existing caption_plan.json with a deterministic real-audio fallback
+- Uses the existing caption_plan.json instead of re-running Whisper
 - True visual-center caption placement
 - Word-by-word active highlighting
 - Power-word pop emphasis
@@ -38,7 +38,6 @@ except ImportError:
         ImageClip,
         AudioFileClip,
         CompositeAudioClip,
-        CompositeVideoClip,
         concatenate_videoclips,
         ColorClip,
         TextClip,
@@ -643,194 +642,6 @@ def _plan_has_real_audio_timing(plan, audio_duration):
     return True
 
 
-def _audio_duration_from_file(path):
-    """Read an existing generated WAV duration without introducing new dependencies."""
-    path = Path(path)
-    if not path.exists():
-        return 0.0
-
-    clip = None
-    try:
-        clip = AudioFileClip(str(path))
-        return max(0.0, float(clip.duration))
-    except Exception:
-        return 0.0
-    finally:
-        safe_close(clip)
-
-
-def _narration_sentences(narration):
-    """Split the factory narration into the same sentence units used by voice_engine."""
-    text = re.sub(r"\s+", " ", str(narration or "").strip())
-    if not text:
-        return []
-
-    return [
-        sentence.strip()
-        for sentence in re.split(r"(?<=[.!?])\s+", text)
-        if sentence.strip()
-    ]
-
-
-def _sentence_audio_windows(narration, audio_duration):
-    """
-    Reconstruct exact sentence-level audio windows from the voice parts already
-    produced by voice_engine.py.
-
-    The voice pipeline concatenates voice_part_N.wav followed by silence_N.wav,
-    so these files provide deterministic timing without changing the voice
-    generation pipeline or requiring a speech model at render time.
-    """
-    sentences = _narration_sentences(narration)
-    if not sentences:
-        return []
-
-    windows = []
-    cursor = 0.0
-
-    for index, _sentence in enumerate(sentences):
-        part_path = OUTPUT / f"voice_part_{index}.wav"
-        part_duration = _audio_duration_from_file(part_path)
-        if part_duration <= 0.0:
-            return []
-
-        start = min(cursor, float(audio_duration))
-        end = min(
-            float(audio_duration),
-            max(start + 0.01, cursor + part_duration),
-        )
-        windows.append((start, end))
-
-        silence_path = OUTPUT / f"silence_{index}.wav"
-        silence_duration = _audio_duration_from_file(silence_path)
-        cursor += part_duration + silence_duration
-
-    # Generated voice.wav should be the concatenation of the same part/silence
-    # files. Allow tiny codec/demux rounding differences but reject clearly
-    # stale/incompatible part sets.
-    if abs(cursor - float(audio_duration)) > 0.40:
-        return []
-
-    return windows
-
-
-def _deterministic_audio_alignment(narration, audio_duration):
-    """
-    Produce stable word timings from the actual generated audio structure.
-
-    Preferred fallback:
-      sentence boundaries -> voice_part_N.wav durations -> character-weighted
-      word timing inside each sentence.
-
-    Last-resort fallback:
-      character-weight the complete narration across the real voice.wav duration.
-
-    This path is only used when the saved caption plan has no real word
-    timestamps or speech-model alignment is unavailable.
-    """
-    target_words = _narration_tokens(narration)
-    if not target_words or audio_duration <= 0:
-        return []
-
-    sentences = _narration_sentences(narration)
-    windows = _sentence_audio_windows(narration, audio_duration)
-
-    if len(sentences) == len(windows):
-        result = []
-        expected_count = 0
-
-        for sentence, (start, end) in zip(sentences, windows):
-            sentence_words = _narration_tokens(sentence)
-            expected_count += len(sentence_words)
-
-            timings = _weighted_time_split(
-                start,
-                end,
-                sentence_words,
-            )
-
-            for word, (word_start, word_end) in zip(sentence_words, timings):
-                result.append(
-                    {
-                        "word": word,
-                        "start": round(float(word_start), 3),
-                        "end": round(float(word_end), 3),
-                    }
-                )
-
-        if expected_count == len(target_words) and len(result) == len(target_words):
-            return result
-
-    timings = _weighted_time_split(
-        0.0,
-        float(audio_duration),
-        target_words,
-    )
-
-    return [
-        {
-            "word": word,
-            "start": round(float(start), 3),
-            "end": round(float(end), 3),
-        }
-        for word, (start, end) in zip(target_words, timings)
-    ]
-
-
-def _retime_existing_caption_plan(plan, narration, audio_duration):
-    """
-    Retimestamp an existing narration-matching caption plan against the real
-    generated voice.wav without changing its grouping or visual styling.
-    """
-    if not plan or not _plan_matches_narration(plan, narration):
-        return []
-
-    aligned = _deterministic_audio_alignment(
-        narration,
-        audio_duration,
-    )
-
-    if not aligned:
-        return []
-
-    flattened = _flatten_plan_words(plan)
-    if len(flattened) != len(aligned):
-        return []
-
-    result = []
-    cursor = 0
-
-    for item in plan:
-        words = []
-        for source_word in item.get("words", []):
-            if cursor >= len(aligned):
-                return []
-
-            timing = aligned[cursor]
-            word = dict(source_word)
-            word["word"] = str(source_word.get("word", "")).upper()
-            word["start"] = float(timing["start"])
-            word["end"] = float(timing["end"])
-            words.append(word)
-            cursor += 1
-
-        if not words:
-            continue
-
-        result.append(
-            {
-                "start": words[0]["start"],
-                "end": words[-1]["end"],
-                "words": words,
-            }
-        )
-
-    if cursor != len(aligned):
-        return []
-
-    return result
-
-
 def _weighted_time_split(start, end, words):
     """Split an audio time range over words using character length weights."""
     count = len(words)
@@ -974,32 +785,18 @@ def _align_whisper_words(narration, whisper_words, audio_duration):
 
 
 def caption_segments(audio_path, narration=None):
-    """Return actual word timings from voice.wav, mapped to the narration."""
+    """Return word timings from the real generated voice, mapped to narration."""
     try:
-        from faster_whisper import WhisperModel
+        # Use the same dependency already declared by requirements.txt and the
+        # same local alignment approach used by caption_engine.py. This keeps
+        # the renderer's timing source identical to the caption-generation
+        # stage rather than maintaining two subtly different ASR paths.
+        from caption_engine import get_word_timestamps
 
-        model = WhisperModel(
-            "base",
-            compute_type="int8",
-        )
-
-        segments, _ = model.transcribe(
+        words = get_word_timestamps(
             str(audio_path),
-            word_timestamps=True,
+            language="en",
         )
-
-        words = []
-        for seg in segments:
-            if not seg.words:
-                continue
-            for word in seg.words:
-                words.append(
-                    {
-                        "word": word.word.strip(),
-                        "start": word.start,
-                        "end": word.end,
-                    }
-                )
 
         if not words:
             return []
@@ -1012,6 +809,162 @@ def caption_segments(audio_path, narration=None):
     except Exception as exc:
         print("Whisper alignment unavailable:", exc)
         return []
+
+
+def _apply_word_timing_to_plan(plan, aligned_words):
+    """Preserve the existing caption grouping/style while replacing timing only."""
+    if not plan or not aligned_words:
+        return []
+
+    plan_word_count = len(_flatten_plan_words(plan))
+    if plan_word_count != len(aligned_words):
+        return []
+
+    rebuilt = []
+    cursor = 0
+
+    for group in plan:
+        rebuilt_words = []
+
+        for source_word in group.get("words", []):
+            if cursor >= len(aligned_words):
+                return []
+
+            timing = aligned_words[cursor]
+            try:
+                start = float(timing["start"])
+                end = float(timing["end"])
+            except (KeyError, TypeError, ValueError):
+                return []
+
+            if end <= start:
+                end = start + 0.01
+
+            word = dict(source_word)
+            word["start"] = start
+            word["end"] = end
+            rebuilt_words.append(word)
+            cursor += 1
+
+        if rebuilt_words:
+            rebuilt.append(
+                {
+                    **dict(group),
+                    "start": rebuilt_words[0]["start"],
+                    "end": rebuilt_words[-1]["end"],
+                    "words": rebuilt_words,
+                }
+            )
+
+    if cursor != len(aligned_words):
+        return []
+
+    return rebuilt
+
+
+def _audio_file_duration(path):
+    """Read an existing generated WAV duration without changing the audio pipeline."""
+    path = Path(path)
+    if not path.exists():
+        return 0.0
+
+    clip = None
+    try:
+        clip = AudioFileClip(str(path))
+        return max(0.0, float(clip.duration))
+    except Exception:
+        return 0.0
+    finally:
+        safe_close(clip)
+
+
+def _sentence_windows_from_voice_parts(narration, audio_duration):
+    """Recover the exact sentence boundaries from the voice files already made by voice_engine."""
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(
+            r"(?<=[.!?])\s+",
+            re.sub(r"\s+", " ", str(narration or "").strip()),
+        )
+        if sentence.strip()
+    ]
+
+    if not sentences:
+        return []
+
+    windows = []
+    cursor = 0.0
+
+    for index, _sentence in enumerate(sentences):
+        part = OUTPUT / f"voice_part_{index}.wav"
+        silence = OUTPUT / f"silence_{index}.wav"
+
+        part_duration = _audio_file_duration(part)
+        if part_duration <= 0.0:
+            return []
+
+        start = min(cursor, float(audio_duration))
+        end = min(
+            float(audio_duration),
+            max(start + 0.01, cursor + part_duration),
+        )
+        windows.append((start, end))
+
+        cursor += part_duration + _audio_file_duration(silence)
+
+    if abs(cursor - float(audio_duration)) > 0.40:
+        return []
+
+    return windows
+
+
+def _retime_fixed_plan_from_actual_voice(plan, narration, audio_duration):
+    """Safe fallback for legacy .35s caption plans when ASR is unavailable."""
+    if not plan or not _plan_matches_narration(plan, narration):
+        return []
+
+    flattened = _flatten_plan_words(plan)
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(
+            r"(?<=[.!?])\s+",
+            re.sub(r"\s+", " ", str(narration or "").strip()),
+        )
+        if sentence.strip()
+    ]
+    windows = _sentence_windows_from_voice_parts(
+        narration,
+        audio_duration,
+    )
+
+    target_words = _narration_tokens(narration)
+    if (
+        not flattened
+        or len(flattened) != len(target_words)
+        or len(sentences) != len(windows)
+    ):
+        return []
+
+    aligned = []
+    target_cursor = 0
+
+    for sentence, (start, end) in zip(sentences, windows):
+        words = _narration_tokens(sentence)
+        timings = _weighted_time_split(start, end, words)
+        for word, (word_start, word_end) in zip(words, timings):
+            aligned.append(
+                {
+                    "word": word,
+                    "start": word_start,
+                    "end": word_end,
+                }
+            )
+        target_cursor += len(words)
+
+    if len(aligned) != len(flattened):
+        return []
+
+    return _apply_word_timing_to_plan(plan, aligned)
 
 
 def _style_lookup_from_plan(plan):
@@ -1112,15 +1065,7 @@ def _groups_from_aligned_words(words, plan=None, max_words=5):
 
 
 def _rebuild_plan_timing(plan, narration, audio_path):
-    """
-    Validate the saved caption plan against the actual voice.
-
-    Real word timestamps are preserved when present. Legacy fixed-duration
-    plans are retimed against the already-generated voice parts before any
-    speech-model fallback is attempted. This guarantees that a failed or
-    unavailable Whisper load can never collapse the video into one giant
-    full-narration caption.
-    """
+    """Use real voice timing first; only fall back to the existing voice parts."""
     duration = get_audio_duration()
 
     if (
@@ -1130,34 +1075,36 @@ def _rebuild_plan_timing(plan, narration, audio_path):
     ):
         return _extend_group_display_windows(plan, duration)
 
-    retimed_plan = _retime_existing_caption_plan(
-        plan,
-        narration,
-        duration,
-    )
-    if retimed_plan:
-        return _extend_group_display_windows(
-            retimed_plan,
-            duration,
-        )
-
+    # The supplied project currently contains a legacy caption_plan.json in
+    # which every word is exactly 0.35s. That is not the timing of the Kokoro
+    # audio, so never render that plan directly. First obtain real word timing
+    # from the actual voice.wav.
     aligned = caption_segments(audio_path, narration)
     if aligned:
+        rebuilt = _apply_word_timing_to_plan(plan, aligned)
+        if rebuilt:
+            return _extend_group_display_windows(
+                rebuilt,
+                duration,
+            )
+
         return _extend_group_display_windows(
             _groups_from_aligned_words(aligned, plan=plan),
             duration,
         )
 
-    # No valid plan and no speech-model alignment. Build a readable caption
-    # sequence from the real audio duration instead of rendering the entire
-    # narration at once.
-    fallback_words = _deterministic_audio_alignment(
+    # ASR is an optional runtime dependency in some environments. When it is
+    # unavailable, synchronize the legacy groups to the exact sentence audio
+    # boundaries that voice_engine already generated instead of guessing a
+    # global fixed 0.35s duration and instead of displaying the whole narration.
+    fallback = _retime_fixed_plan_from_actual_voice(
+        plan,
         narration,
         duration,
     )
-    if fallback_words:
+    if fallback:
         return _extend_group_display_windows(
-            _groups_from_aligned_words(fallback_words, plan=plan),
+            fallback,
             duration,
         )
 
@@ -1558,7 +1505,6 @@ def make_caption_group(group, font, theme="cinematic"):
 
     return clips
 
-
 def make_caption(text, start, end):
     """Backward-compatible single-caption fallback using MoviePy 2.x syntax."""
     duration = max(0.4, end - start)
@@ -1619,43 +1565,11 @@ def build_captions(narration):
         if clips:
             return clips
 
-    # Final fallback for unusual runs where no aligned caption plan can be made.
-    timings = caption_segments(audio, narration)
-
-    if timings:
-        fallback_groups = _extend_group_display_windows(
-            _groups_from_aligned_words(timings, plan=None),
-            get_audio_duration(),
-        )
-        brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
-        theme = choose_caption_theme(narration, None, brief=brief)
-        font = resolve_caption_font(theme)
-        clips = []
-        for group in fallback_groups:
-            clips.extend(make_caption_group(group, font, theme=theme))
-        if clips:
-            return clips
-
-    # Never render the entire narration as one caption. That fallback makes
-    # every word appear simultaneously whenever Whisper is unavailable.
-    fallback_words = _deterministic_audio_alignment(
-        narration,
-        get_audio_duration(),
-    )
-    if fallback_words:
-        fallback_groups = _extend_group_display_windows(
-            _groups_from_aligned_words(fallback_words, plan=None),
-            get_audio_duration(),
-        )
-        brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
-        theme = choose_caption_theme(narration, None, brief=brief)
-        font = resolve_caption_font(theme)
-        clips = []
-        for group in fallback_groups:
-            clips.extend(make_caption_group(group, font, theme=theme))
-        if clips:
-            return clips
-
+    # Never render the entire narration as one caption. That fallback causes
+    # every word to be visible simultaneously whenever alignment fails.
+    # At this point the renderer has already attempted the real voice timing
+    # and the sentence-accurate fallback, so simply keep captions absent rather
+    # than producing a visibly corrupted caption layer.
     return []
 
 
