@@ -3,7 +3,7 @@ Motivational Factory Premium Shorts Renderer
 
 Targeted output-layer improvements only:
 - MoviePy 2.x-compatible TextClip usage
-- Uses the existing caption_plan.json instead of re-running Whisper
+- Uses the existing caption_plan.json for caption styling while rebuilding timing from the real voice
 - True visual-center caption placement
 - Word-by-word active highlighting
 - Power-word pop emphasis
@@ -787,8 +787,142 @@ def _align_whisper_words(narration, whisper_words, audio_duration):
     return result
 
 
+def _refine_sentence_alignment_to_audio_bounds(aligned, speech_start, speech_end):
+    """Anchor Whisper word timing to the real spoken edges of the TTS sentence."""
+    if not aligned:
+        return []
+
+    try:
+        speech_start = float(speech_start)
+        speech_end = max(speech_start + 0.01, float(speech_end))
+        raw_start = float(aligned[0]["start"])
+        raw_end = float(aligned[-1]["end"])
+    except (TypeError, ValueError, KeyError):
+        return aligned
+
+    raw_span = raw_end - raw_start
+    target_span = speech_end - speech_start
+    if raw_span < 0.05 or target_span < 0.05:
+        return aligned
+
+    refined = []
+    scale = target_span / raw_span
+    previous_end = speech_start
+
+    for item in aligned:
+        start = speech_start + (float(item["start"]) - raw_start) * scale
+        end = speech_start + (float(item["end"]) - raw_start) * scale
+        start = max(previous_end, speech_start, start)
+        end = min(speech_end, max(start + 0.01, end))
+        refined.append(
+            {
+                "word": item["word"],
+                "start": round(start, 3),
+                "end": round(end, 3),
+            }
+        )
+        previous_end = refined[-1]["end"]
+
+    if refined:
+        refined[0]["start"] = round(speech_start, 3)
+        refined[-1]["end"] = round(speech_end, 3)
+
+    return refined
+
+
+def _sentence_part_caption_segments(audio_path, narration, model):
+    """Align each generated TTS sentence independently before rebuilding the global clock."""
+    audio_path = Path(audio_path)
+    output_dir = audio_path.parent
+    sentences = [
+        sentence
+        for sentence in re.split(r'(?<=[.!?])\s+', str(narration or '').strip())
+        if sentence
+    ]
+    if not sentences or model is None:
+        return []
+
+    aligned = []
+    cursor = 0.0
+
+    for index, sentence in enumerate(sentences):
+        part = output_dir / f"voice_part_{index}.wav"
+        if not part.exists():
+            return []
+
+        part_duration = _audio_duration_from_wave(part)
+        if part_duration <= 0:
+            return []
+
+        target_words = _narration_tokens(sentence)
+        if not target_words:
+            continue
+
+        try:
+            segments, _ = model.transcribe(
+                str(part),
+                word_timestamps=True,
+                language="en",
+                beam_size=5,
+                temperature=0,
+                condition_on_previous_text=False,
+                vad_filter=False,
+                initial_prompt=sentence,
+            )
+
+            transcript = []
+            for seg in segments:
+                if not seg.words:
+                    continue
+                for item in seg.words:
+                    token = str(item.word or '').strip()
+                    if token:
+                        transcript.append(
+                            {
+                                "word": token,
+                                "start": float(item.start),
+                                "end": float(item.end),
+                            }
+                        )
+        except Exception as exc:
+            print(f"Whisper sentence alignment failed for part {index}: {exc}")
+            return []
+
+        local = _align_whisper_words(
+            sentence,
+            transcript,
+            part_duration,
+        )
+        if not local:
+            return []
+
+        speech_start, speech_end = _speech_bounds_from_wave(part)
+        local_pairs = _refine_sentence_alignment_to_audio_bounds(
+            local,
+            speech_start,
+            speech_end,
+        )
+
+        for item in local_pairs:
+            aligned.append(
+                {
+                    "word": item["word"],
+                    "start": round(cursor + item["start"], 3),
+                    "end": round(cursor + item["end"], 3),
+                }
+            )
+
+        silence = output_dir / f"silence_{index}.wav"
+        if silence.exists():
+            cursor += part_duration + _audio_duration_from_wave(silence)
+        else:
+            cursor += part_duration
+
+    return aligned
+
+
 def caption_segments(audio_path, narration=None):
-    """Return actual word timings from voice.wav, mapped to the narration."""
+    """Return real word timings, aligned against the exact generated TTS sentence files."""
     try:
         from faster_whisper import WhisperModel
 
@@ -796,6 +930,15 @@ def caption_segments(audio_path, narration=None):
             "small",
             compute_type="int8",
         )
+
+        if narration:
+            sentence_aligned = _sentence_part_caption_segments(
+                audio_path,
+                narration,
+                model,
+            )
+            if sentence_aligned:
+                return sentence_aligned
 
         segments, _ = model.transcribe(
             str(audio_path),
@@ -805,6 +948,7 @@ def caption_segments(audio_path, narration=None):
             temperature=0,
             condition_on_previous_text=False,
             vad_filter=False,
+            initial_prompt=str(narration or '').strip() or None,
         )
 
         words = []
@@ -931,11 +1075,32 @@ def _groups_from_aligned_words(words, plan=None, max_words=5):
 
 
 def _rebuild_plan_timing(plan, narration, audio_path):
-    """
-    Validate the saved caption plan against the actual voice and only replace
-    timestamps when the plan came from the old fixed-duration fallback.
-    """
+    """Build the render timeline from the real generated voice, not synthetic plan timing."""
     duration = get_audio_duration()
+
+    # The saved caption plan remains the styling/text source, but its timestamps
+    # can be generated by a weighted fallback. Always prefer fresh audio
+    # alignment at render time so no synthetic timing can mask a real Whisper
+    # alignment pass.
+    aligned = caption_segments(audio_path, narration)
+    if aligned:
+        return _extend_group_display_windows(
+            _groups_from_aligned_words(aligned, plan=plan),
+            duration,
+        )
+
+    # Whisper is the primary word-level alignment. Only when it is unavailable
+    # do we fall back to the exact TTS sentence files and their real durations.
+    sentence_aligned = _sentence_parts_fallback(
+        narration,
+        audio_path,
+        plan=plan,
+    )
+    if sentence_aligned:
+        return _extend_group_display_windows(
+            _groups_from_aligned_words(sentence_aligned, plan=plan),
+            duration,
+        )
 
     if (
         plan
@@ -949,14 +1114,7 @@ def _rebuild_plan_timing(plan, narration, audio_path):
     ):
         return _extend_group_display_windows(plan, duration)
 
-    aligned = caption_segments(audio_path, narration)
-    if not aligned:
-        return []
-
-    return _extend_group_display_windows(
-        _groups_from_aligned_words(aligned, plan=plan),
-        duration,
-    )
+    return []
 
 
 def _audio_duration_from_wave(path):

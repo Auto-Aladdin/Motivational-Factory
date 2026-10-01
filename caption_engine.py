@@ -644,6 +644,50 @@ def get_word_timestamps(
 
 
 
+def _refine_sentence_alignment_to_audio_bounds(aligned, speech_start, speech_end):
+
+    if not aligned:
+        return []
+
+    try:
+        speech_start = float(speech_start)
+        speech_end = max(speech_start + 0.01, float(speech_end))
+        raw_start = float(aligned[0]["start"])
+        raw_end = float(aligned[-1]["end"])
+    except (TypeError, ValueError, KeyError):
+        return aligned
+
+    raw_span = raw_end - raw_start
+    target_span = speech_end - speech_start
+
+    if raw_span < 0.05 or target_span < 0.05:
+        return aligned
+
+    scale = target_span / raw_span
+    refined = []
+    previous_end = speech_start
+
+    for item in aligned:
+        start = speech_start + (float(item["start"]) - raw_start) * scale
+        end = speech_start + (float(item["end"]) - raw_start) * scale
+        start = max(previous_end, speech_start, start)
+        end = min(speech_end, max(start + 0.01, end))
+
+        refined.append({
+            "word": item["word"],
+            "start": round(start, 3),
+            "end": round(end, 3),
+        })
+
+        previous_end = refined[-1]["end"]
+
+    if refined:
+        refined[0]["start"] = round(speech_start, 3)
+        refined[-1]["end"] = round(speech_end, 3)
+
+    return refined
+
+
 def _sentence_parts_whisper_alignment(
         narration,
         audio_path,
@@ -708,6 +752,13 @@ def _sentence_parts_whisper_alignment(
 
         if not local:
             return []
+
+        speech_start, speech_end = _speech_bounds(part)
+        local = _refine_sentence_alignment_to_audio_bounds(
+            local,
+            speech_start,
+            speech_end,
+        )
 
         for word in local:
 
