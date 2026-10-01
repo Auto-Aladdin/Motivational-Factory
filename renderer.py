@@ -20,6 +20,8 @@ import os
 import re
 import wave
 from difflib import SequenceMatcher
+
+import numpy as np
 from pathlib import Path
 
 try:
@@ -791,13 +793,18 @@ def caption_segments(audio_path, narration=None):
         from faster_whisper import WhisperModel
 
         model = WhisperModel(
-            "base",
+            "small",
             compute_type="int8",
         )
 
         segments, _ = model.transcribe(
             str(audio_path),
             word_timestamps=True,
+            language="en",
+            beam_size=5,
+            temperature=0,
+            condition_on_previous_text=False,
+            vad_filter=False,
         )
 
         words = []
@@ -934,6 +941,11 @@ def _rebuild_plan_timing(plan, narration, audio_path):
         plan
         and _plan_matches_narration(plan, narration)
         and _plan_has_real_audio_timing(plan, duration)
+        and _plan_respects_sentence_speech_bounds(
+            plan,
+            narration,
+            audio_path.parent,
+        )
     ):
         return _extend_group_display_windows(plan, duration)
 
@@ -958,6 +970,159 @@ def _audio_duration_from_wave(path):
     except Exception as exc:
         print("Caption WAV duration read failed:", exc)
     return 0.0
+
+
+def _speech_bounds_from_wave(path):
+    """Return the first and last voiced portions of a generated WAV file."""
+    try:
+        with wave.open(str(path), "rb") as audio:
+            sample_rate = audio.getframerate()
+            channels = audio.getnchannels()
+            raw = audio.readframes(audio.getnframes())
+
+        if sample_rate <= 0 or not raw:
+            return 0.0, 0.0
+
+        samples = np.frombuffer(
+            raw,
+            dtype=np.int16,
+        ).astype(np.float32)
+
+        if channels > 1:
+            samples = samples.reshape(-1, channels).mean(axis=1)
+
+        if samples.size == 0:
+            return 0.0, 0.0
+
+        samples /= 32768.0
+
+        frame_size = max(1, int(sample_rate * 0.02))
+        hop = max(1, int(sample_rate * 0.01))
+        rms = []
+        positions = []
+
+        for start in range(
+            0,
+            max(1, len(samples) - frame_size + 1),
+            hop,
+        ):
+            frame = samples[start:start + frame_size]
+            if frame.size == 0:
+                continue
+            rms.append(
+                float(
+                    np.sqrt(
+                        np.mean(frame * frame) + 1e-12
+                    )
+                )
+            )
+            positions.append(start)
+
+        if not rms:
+            duration = len(samples) / float(sample_rate)
+            return 0.0, duration
+
+        rms = np.asarray(rms, dtype=np.float32)
+        threshold = max(
+            0.001,
+            float(np.percentile(rms, 95)) * 0.08,
+        )
+        active = rms > threshold
+
+        gap_limit = max(1, int(round(0.08 / 0.01)))
+        inactive_start = None
+        for i, value in enumerate(active):
+            if value:
+                if inactive_start is not None:
+                    if i - inactive_start <= gap_limit:
+                        active[inactive_start:i] = True
+                    inactive_start = None
+            elif inactive_start is None:
+                inactive_start = i
+
+        active_indices = np.flatnonzero(active)
+        if active_indices.size == 0:
+            duration = len(samples) / float(sample_rate)
+            return 0.0, duration
+
+        first = positions[int(active_indices[0])]
+        last_index = int(active_indices[-1])
+        last = min(
+            len(samples),
+            positions[last_index] + frame_size,
+        )
+
+        return (
+            first / float(sample_rate),
+            last / float(sample_rate),
+        )
+
+    except Exception as exc:
+        print("Renderer speech-bound detection failed:", exc)
+        duration = _audio_duration_from_wave(path)
+        return 0.0, duration
+
+
+
+def _plan_respects_sentence_speech_bounds(plan, narration, audio_dir):
+    """Reject caption plans that place words inside known TTS padding."""
+    words = _flatten_plan_words(plan)
+    sentences = [
+        sentence
+        for sentence in re.split(
+            r'(?<=[.!?])\s+',
+            str(narration or '').strip(),
+        )
+        if sentence
+    ]
+
+    if not words or not sentences:
+        return False
+
+    offset = 0
+    cursor = 0.0
+
+    for index, sentence in enumerate(sentences):
+        sentence_words = _narration_tokens(sentence)
+        count = len(sentence_words)
+        part = Path(audio_dir) / f"voice_part_{index}.wav"
+        if count == 0 or not part.exists():
+            return False
+
+        part_duration = _audio_duration_from_wave(part)
+        if part_duration <= 0 or offset + count > len(words):
+            return False
+
+        speech_start, speech_end = _speech_bounds_from_wave(part)
+        first = words[offset]
+        last = words[offset + count - 1]
+
+        try:
+            first_start = float(first["start"])
+            last_end = float(last["end"])
+        except (TypeError, ValueError, KeyError):
+            return False
+
+        global_speech_start = cursor + speech_start
+        global_speech_end = cursor + speech_end
+
+        if first_start < global_speech_start - 0.08:
+            return False
+        if last_end > global_speech_end + 0.12:
+            return False
+
+        offset += count
+
+        silence = Path(audio_dir) / f"silence_{index}.wav"
+        if silence.exists():
+            cursor += (
+                part_duration
+                + _audio_duration_from_wave(silence)
+            )
+        else:
+            cursor += part_duration
+
+    return offset == len(words)
 
 
 def _sentence_parts_fallback(narration, audio_path, plan=None):
@@ -1001,22 +1166,36 @@ def _sentence_parts_fallback(narration, audio_path, plan=None):
         if not sentence_words:
             return []
 
+        speech_start, speech_end = _speech_bounds_from_wave(part)
+        speech_start = min(
+            max(0.0, speech_start),
+            part_duration,
+        )
+        speech_end = min(
+            max(speech_start, speech_end),
+            part_duration,
+        )
+        if speech_end - speech_start < 0.05:
+            speech_start = 0.0
+            speech_end = part_duration
+
         weights = [
             max(1, len(_normalize_token(word)))
             for word in sentence_words
         ]
         total_weight = float(sum(weights)) or float(len(sentence_words))
-        word_cursor = cursor
+        usable_duration = speech_end - speech_start
+        word_cursor = cursor + speech_start
 
         for word_index, (word, weight) in enumerate(
                 zip(sentence_words, weights)
         ):
             if word_index == len(sentence_words) - 1:
-                word_end = cursor + part_duration
+                word_end = cursor + speech_end
             else:
                 word_end = (
                     word_cursor
-                    + part_duration * (weight / total_weight)
+                    + usable_duration * (weight / total_weight)
                 )
 
             token = target_words[token_offset]
@@ -2097,6 +2276,27 @@ def render():
             clips,
             method="compose",
         )
+
+        # Keep the visual clock exactly equal to the narration clock. Some
+        # source videos report a slightly shorter duration than the requested
+        # scene window; without this correction the audio/caption timeline can
+        # continue after the video stream has already ended.
+        video_duration = float(video.duration or 0.0)
+        if video_duration < total - 0.001:
+            hold_duration = total - video_duration
+            frame_time = max(
+                0.0,
+                video_duration - (1.0 / 30.0),
+            )
+            hold_frame = ImageClip(
+                video.get_frame(frame_time)
+            ).with_duration(hold_duration)
+            video = concatenate_videoclips(
+                [video, hold_frame],
+                method="compose",
+            )
+        elif video_duration > total + 0.001:
+            video = video.subclipped(0, total)
 
         if (OUTPUT / "voice.wav").exists():
             voice = AudioFileClip(str(OUTPUT / "voice.wav"))
