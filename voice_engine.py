@@ -38,8 +38,8 @@ VOICE_PROFILES = {
         "voice": "am_adam",
         "speed": 0.86,
         "description":
-            "Deep cinematic philosopher voice. Calm authority, "
-            "controlled wisdom, discipline and stoic reflection.",
+            "Deep cinematic male philosopher voice. Calm authority, "
+            "controlled wisdom, discipline, healing, hope, and stoic reflection.",
         "sentence_pause": 0.9,
         "dramatic_pause": 1.4
     },
@@ -48,33 +48,14 @@ VOICE_PROFILES = {
         "voice": "am_michael",
         "speed": 0.92,
         "description":
-            "Powerful cinematic motivational voice. Controlled intensity, "
-            "determination and resilience.",
+            "Powerful cinematic male motivational voice. Controlled intensity, "
+            "determination, adversity, courage, sacrifice, and resilience.",
         "sentence_pause": 0.7,
-        "dramatic_pause": 1.2
-    },
-
-    "warm_female": {
-        "voice": "af_bella",
-        "speed": 0.97,
-        "description":
-            "Warm documentary-style reflective voice for emotional "
-            "growth and human connection.",
-        "sentence_pause": 0.8,
-        "dramatic_pause": 1.1
-    },
-
-    "hopeful_female": {
-        "voice": "af_sarah",
-        "speed": 0.95,
-        "description":
-            "Hopeful cinematic inspirational voice for transformation "
-            "and positive change.",
-        "sentence_pause": 0.8,
         "dramatic_pause": 1.2
     }
 
 }
+
 
 
 DEFAULT_PROFILE = "stoic_male"
@@ -157,7 +138,17 @@ VOICE_SIGNAL_GROUPS = {
         "routine", "focus", "focused", "control", "self control",
         "determination", "determined", "grind", "work ethic", "patience",
         "stoic", "responsibility", "restraint", "composure", "wisdom",
-        "philosophy", "philosophical", "self mastery", "self-mastery"
+        "philosophy", "philosophical", "self mastery", "self-mastery",
+        "healing", "heal", "past", "forgive", "forgiveness", "hurt",
+        "hurting", "emotional", "emotion", "growth", "growing", "journey",
+        "heart", "heartbreak", "lonely", "loneliness", "memories", "regret",
+        "peace", "acceptance", "letting go", "grief", "compassion",
+        "self worth", "self-worth", "change", "future", "hope", "hopeful",
+        "believe", "believing", "belief", "possibility", "possibilities",
+        "confidence", "confident", "opportunity", "opportunities", "vision",
+        "goal", "goals", "success", "successful", "inspire", "inspiration",
+        "inspiring", "tomorrow", "potential", "transformation", "transform",
+        "new beginning", "purpose", "becoming", "dream", "dreams", "rebirth"
     ],
 
     "power_male": [
@@ -166,26 +157,11 @@ VOICE_SIGNAL_GROUPS = {
         "quitting", "setback", "setbacks", "obstacle", "obstacles",
         "rejected", "rejection", "defeat", "defeated", "warrior",
         "battle", "pressure", "resistance", "fight", "fighting", "courage",
-        "grit", "adversity"
-    ],
-
-    "warm_female": [
-        "healing", "heal", "past", "forgive", "forgiveness", "hurt",
-        "hurting", "emotional", "emotion", "growth", "growing", "journey",
-        "heart", "heartbreak", "lonely", "loneliness", "memories", "regret",
-        "peace", "acceptance", "letting go", "grief", "compassion",
-        "self worth", "self-worth"
-    ],
-
-    "hopeful_female": [
-        "change", "future", "hope", "hopeful", "believe", "believing",
-        "belief", "possibility", "possibilities", "confidence", "confident",
-        "opportunity", "opportunities", "vision", "goal", "goals", "success",
-        "successful", "inspire", "inspiration", "inspiring", "tomorrow",
-        "potential", "transformation", "transform", "new beginning", "purpose",
-        "becoming", "dream", "dreams", "rebirth"
+        "grit", "adversity", "hardship", "suffering", "conquer",
+        "resilience", "resilient", "strength", "strong"
     ]
 }
+
 
 
 def _count_voice_signals(text, signals):
@@ -252,6 +228,7 @@ def apply_cinematic_performance(text, index, total, profile=DEFAULT_PROFILE):
                 " but ": "... but ",
                 " because ": "... because ",
                 " however ": "... however ",
+                " yet ": "... yet ",
                 " the truth is ": "the truth is... ",
                 " remember ": "remember... "
             },
@@ -259,27 +236,6 @@ def apply_cinematic_performance(text, index, total, profile=DEFAULT_PROFILE):
             "trailing_pause": True
         },
         "power_male": {
-            "replacements": {
-                " but ": "...but ",
-                " because ": "...because ",
-                " however ": "...however ",
-                " yet ": "...yet ",
-                " until ": "...until "
-            },
-            "leading_pause": False,
-            "trailing_pause": True
-        },
-        "warm_female": {
-            "replacements": {
-                " but ": "...but ",
-                " because ": "...because ",
-                " however ": "...however ",
-                " and then ": "...and then "
-            },
-            "leading_pause": False,
-            "trailing_pause": False
-        },
-        "hopeful_female": {
             "replacements": {
                 " but ": "...but ",
                 " because ": "...because ",
@@ -338,24 +294,17 @@ def add_emotional_pauses(sentence, profile=DEFAULT_PROFILE):
         "stoic_male": {
             " but ": "... but ",
             " because ": "... because ",
-            " however ": "... however "
+            " however ": "... however ",
+            " yet ": "... yet "
         },
         "power_male": {
             " but ": "...but ",
             " because ": "...because ",
             " however ": "...however ",
             " yet ": "...yet "
-        },
-        "warm_female": {
-            " but ": "...but ",
-            " because ": "...because "
-        },
-        "hopeful_female": {
-            " but ": "...but ",
-            " because ": "...because ",
-            " yet ": "...yet "
         }
     }
+
 
     for old, new in profile_replacements.get(
         profile,

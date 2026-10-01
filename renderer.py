@@ -18,6 +18,7 @@ remain unchanged.
 import json
 import os
 import re
+import wave
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -75,6 +76,10 @@ CAPTION_SAFE_TOP = 720
 CAPTION_SAFE_BOTTOM = 1200
 CAPTION_CENTER_Y = (CAPTION_SAFE_TOP + CAPTION_SAFE_BOTTOM) / 2
 CAPTION_POP_DURATION = 0.11
+CAPTION_BACKDROP_PADDING_X = 34
+CAPTION_BACKDROP_PADDING_Y = 22
+CAPTION_BACKDROP_OPACITY = 0.16
+CAPTION_BACKDROP_HALO_OPACITY = 0.055
 
 # Existing caption-plan colors are preserved.
 DEFAULT_NORMAL = "#FFFFFF"
@@ -221,7 +226,7 @@ def cinematic_grade(clip):
         (WIDTH, HEIGHT),
         color=(0, 0, 0),
         duration=clip.duration,
-    ).with_opacity(0.42)
+    ).with_opacity(0.26)
 
     return CompositeVideoClip([clip, overlay])
 
@@ -451,8 +456,6 @@ def choose_caption_theme(narration, caption_plan=None, brief=None):
         voice_map = {
             "stoic_male": "stoic",
             "power_male": "warrior",
-            "warm_female": "cinematic",
-            "hopeful_female": "calm",
         }
         selected = voice_map.get(voice_personality)
         if selected:
@@ -944,6 +947,156 @@ def _rebuild_plan_timing(plan, narration, audio_path):
     )
 
 
+def _audio_duration_from_wave(path):
+    """Read a WAV duration without adding another media dependency."""
+    try:
+        with wave.open(str(path), "rb") as audio:
+            frames = audio.getnframes()
+            rate = audio.getframerate()
+        if rate:
+            return frames / float(rate)
+    except Exception as exc:
+        print("Caption WAV duration read failed:", exc)
+    return 0.0
+
+
+def _sentence_parts_fallback(narration, audio_path, plan=None):
+    """
+    Recover caption timing from the exact Kokoro sentence files.
+
+    voice_engine.py creates voice_part_N.wav for each narration sentence and
+    silence_N.wav between them. Using those real files keeps the caption clock
+    aligned to the final voice even when faster-whisper cannot be loaded.
+    """
+    audio_path = Path(audio_path)
+    output_dir = audio_path.parent
+
+    sentences = re.split(
+        r'(?<=[.!?])\s+',
+        str(narration or '').strip(),
+    )
+    sentences = [sentence for sentence in sentences if sentence]
+    if not sentences:
+        return []
+
+    target_words = _narration_tokens(narration)
+    if not target_words:
+        return []
+
+    style_lookup = _style_lookup_from_plan(plan or [])
+    aligned = []
+    cursor = 0.0
+    token_offset = 0
+
+    for index, sentence in enumerate(sentences):
+        part = output_dir / f"voice_part_{index}.wav"
+        if not part.exists():
+            return []
+
+        part_duration = _audio_duration_from_wave(part)
+        if part_duration <= 0:
+            return []
+
+        sentence_words = _narration_tokens(sentence)
+        if not sentence_words:
+            return []
+
+        weights = [
+            max(1, len(_normalize_token(word)))
+            for word in sentence_words
+        ]
+        total_weight = float(sum(weights)) or float(len(sentence_words))
+        word_cursor = cursor
+
+        for word_index, (word, weight) in enumerate(
+                zip(sentence_words, weights)
+        ):
+            if word_index == len(sentence_words) - 1:
+                word_end = cursor + part_duration
+            else:
+                word_end = (
+                    word_cursor
+                    + part_duration * (weight / total_weight)
+                )
+
+            token = target_words[token_offset]
+            style = style_lookup.get(
+                _normalize_token(token),
+                {
+                    "style": "normal",
+                    "color": DEFAULT_NORMAL,
+                    "animation": "fade",
+                },
+            )
+            aligned.append({
+                "word": token.upper(),
+                "start": round(word_cursor, 3),
+                "end": round(
+                    max(word_cursor + 0.01, word_end),
+                    3,
+                ),
+                **style,
+            })
+
+            word_cursor = word_end
+            token_offset += 1
+
+        silence = output_dir / f"silence_{index}.wav"
+        if silence.exists():
+            cursor += part_duration + _audio_duration_from_wave(silence)
+        else:
+            cursor += part_duration
+
+    if token_offset != len(target_words):
+        return []
+
+    duration = get_audio_duration()
+    if duration > 0 and aligned:
+        aligned[-1]["end"] = round(
+            min(duration, aligned[-1]["end"]),
+            3,
+        )
+
+    return aligned
+
+
+def _full_audio_weighted_fallback(narration, audio_duration, plan=None):
+    """Final non-destructive fallback: use the whole real audio duration."""
+    words = _narration_tokens(narration)
+    if not words or audio_duration <= 0:
+        return []
+
+    style_lookup = _style_lookup_from_plan(plan or [])
+    weights = [max(1, len(_normalize_token(word))) for word in words]
+    total_weight = float(sum(weights)) or float(len(words))
+    aligned = []
+    cursor = 0.0
+
+    for index, (word, weight) in enumerate(zip(words, weights)):
+        if index == len(words) - 1:
+            end = float(audio_duration)
+        else:
+            end = cursor + float(audio_duration) * (weight / total_weight)
+
+        style = style_lookup.get(
+            _normalize_token(word),
+            {
+                "style": "normal",
+                "color": DEFAULT_NORMAL,
+                "animation": "fade",
+            },
+        )
+        aligned.append({
+            "word": word.upper(),
+            "start": round(cursor, 3),
+            "end": round(max(cursor + 0.01, end), 3),
+            **style,
+        })
+        cursor = end
+
+    return aligned
+
+
 # =====================================================
 # CAPTION BUILDING
 # =====================================================
@@ -1197,6 +1350,45 @@ def make_caption_group(group, font, theme="cinematic"):
     # a future word before its own word-level timestamp.
     display_end = max(group_end, float(group.get("display_end", group_end)))
 
+    # Subtle layered caption treatment improves readability while preserving
+    # the underlying footage/image. The wider low-opacity layer acts as a soft
+    # atmospheric halo; the tighter layer creates the readable contrast zone.
+    backdrop_width = min(
+        WIDTH - 96,
+        max(line_widths) + (CAPTION_BACKDROP_PADDING_X * 2)
+    )
+    backdrop_height = total_height + (CAPTION_BACKDROP_PADDING_Y * 2)
+    backdrop_x = CAPTION_CENTER_X - backdrop_width / 2
+    backdrop_y = top - CAPTION_BACKDROP_PADDING_Y
+    backdrop_duration = max(0.01, display_end - group_start)
+
+    halo_width = min(WIDTH - 56, backdrop_width + 72)
+    halo_height = backdrop_height + 52
+    halo = (
+        ColorClip(
+            (halo_width, halo_height),
+            color=(0, 0, 0),
+            duration=backdrop_duration,
+        )
+        .with_opacity(CAPTION_BACKDROP_HALO_OPACITY)
+        .with_position((
+            CAPTION_CENTER_X - halo_width / 2,
+            backdrop_y - 26,
+        ))
+        .with_start(group_start)
+    )
+    plate = (
+        ColorClip(
+            (backdrop_width, backdrop_height),
+            color=(0, 0, 0),
+            duration=backdrop_duration,
+        )
+        .with_opacity(CAPTION_BACKDROP_OPACITY)
+        .with_position((backdrop_x, backdrop_y))
+        .with_start(group_start)
+    )
+    clips.extend([halo, plate])
+
     # Do not let more than two keyword accents dominate a single caption group.
     accent_count = 0
     for index, word in enumerate(words):
@@ -1376,7 +1568,52 @@ def build_captions(narration):
         if clips:
             return clips
 
-    return [make_caption(narration, 0, get_audio_duration())]
+    # Never render the entire narration as one giant TextClip. That fallback
+    # makes the whole script appear at once, overflows the Shorts frame, and
+    # destroys caption/audio synchronization. Recover from the actual voice
+    # sentence files first, then use the full real audio duration only as a
+    # final timing fallback.
+    sentence_aligned = _sentence_parts_fallback(
+        narration,
+        audio,
+        plan=plan,
+    )
+    if sentence_aligned:
+        fallback_groups = _extend_group_display_windows(
+            _groups_from_aligned_words(sentence_aligned, plan=plan),
+            get_audio_duration(),
+        )
+        if fallback_groups:
+            brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
+            theme = choose_caption_theme(narration, plan, brief=brief)
+            font = resolve_caption_font(theme)
+            clips = []
+            for group in fallback_groups:
+                clips.extend(make_caption_group(group, font, theme=theme))
+            if clips:
+                return clips
+
+    weighted = _full_audio_weighted_fallback(
+        narration,
+        get_audio_duration(),
+        plan=plan,
+    )
+    if weighted:
+        fallback_groups = _extend_group_display_windows(
+            _groups_from_aligned_words(weighted, plan=plan),
+            get_audio_duration(),
+        )
+        if fallback_groups:
+            brief = load_json(OUTPUT / "production_brief.json") if (OUTPUT / "production_brief.json").exists() else None
+            theme = choose_caption_theme(narration, plan, brief=brief)
+            font = resolve_caption_font(theme)
+            clips = []
+            for group in fallback_groups:
+                clips.extend(make_caption_group(group, font, theme=theme))
+            if clips:
+                return clips
+
+    return []
 
 
 # =====================================================
@@ -1553,7 +1790,6 @@ def _safe_float(value, default=0.0):
 
 SHORT_FORMAT_HISTORY_GROUPS = {
     "historical",
-    "warrior",
     "ancient",
     "stoic",
     "classical",
@@ -1580,8 +1816,14 @@ SHORT_FORMAT_STILL_WORDS = {
     "sculpture", "statue", "painting", "classical", "roman", "greek",
     "philosopher", "historical", "leader", "leaders", "wisdom",
     "stoic", "stoicism", "civilization", "symbolic", "symbolism",
-    "still", "monument", "bust", "relief",
+    "still", "monument", "bust", "relief", "meditation", "meditative",
+    "reflection", "reflective", "contemplation", "contemplative",
+    "solitude", "silence", "book", "journal", "letter", "candle",
+    "artifact", "relic", "architecture", "ruins", "library", "engraving",
+    "detail", "close-up", "closeup", "still-life", "stilllife", "symbol",
+    "metaphor",
 }
+
 
 
 def _full_short_text(brief):
@@ -1614,17 +1856,17 @@ def _full_short_text(brief):
 
 
 def _determine_short_asset_type(brief, assets):
-    """Choose ONE visual format for the entire Short. Never mix formats."""
+    """Choose ONE visual format for the entire Short using topic and scene semantics."""
     text = _full_short_text(brief)
     tokens = _token_set(text)
 
-    # Historical / classical strength figures are explicitly image-first.
+    # Classical, historical, philosophical and contemplative subjects are
+    # image-first when their meaning benefits from a composed still.
     historical_hits = len(tokens & SHORT_FORMAT_HISTORY_GROUPS)
     if historical_hits >= 2 or any(phrase in text for phrase in (
         "marcus aurelius",
         "powerful historical figure",
         "historical strength figure",
-        "legendary warrior",
         "ancient warrior",
         "classical statue",
         "roman emperor",
@@ -1643,18 +1885,38 @@ def _determine_short_asset_type(brief, assets):
         still_score += 2
     if "cinematic" in visual_style or "dynamic" in visual_style or "action" in visual_style:
         motion_score += 2
-    if any(term in philosophical_theme for term in ("stoic", "ancient", "classical", "wisdom")):
+    if any(term in philosophical_theme for term in (
+        "stoic", "ancient", "classical", "wisdom", "meditation", "reflection"
+    )):
         still_score += 2
 
-    # Strong action/movement concepts should genuinely use footage when available.
-    if motion_score >= still_score + 2:
-        preferred = "video"
-    elif still_score >= motion_score + 2:
-        preferred = "image"
-    else:
-        # Default toward video when both formats are plausible so the factory
-        # does not drift into image-only output.
-        preferred = "video"
+    # Let the actual generated scene descriptions strengthen the decision.
+    for scene in brief.get("scenes", []) or []:
+        visual = scene.get("visual", {}) or {}
+        visual_type = str(visual.get("type", "")).lower()
+        action = str(visual.get("action", "")).lower()
+        composition = str(visual.get("composition", "")).lower()
+        camera = str(visual.get("camera", "")).lower()
+        scene_text = " ".join((visual_type, action, composition, camera))
+        scene_tokens = _token_set(scene_text)
+
+        motion_score += min(3, len(scene_tokens & SHORT_FORMAT_MOTION_WORDS))
+        still_score += min(3, len(scene_tokens & SHORT_FORMAT_STILL_WORDS))
+
+        if visual_type in {
+            "action", "slow-motion", "tracking shot", "movement", "chase",
+            "handheld movement", "dynamic", "motion"
+        }:
+            motion_score += 2
+        if visual_type in {
+            "close-up", "detail shot", "environmental shot", "symbolic", "still",
+            "portrait", "tableau"
+        }:
+            still_score += 2
+
+    # Clear still-image intent wins; otherwise keep the dynamic video-first
+    # behavior. Either way, the renderer uses only ONE medium for the Short.
+    preferred = "image" if still_score >= motion_score + 2 else "video"
 
     available = {
         "video": any(group.get("videos") for group in assets.get("videos", [])),
@@ -1668,6 +1930,7 @@ def _determine_short_asset_type(brief, assets):
     if available.get("image"):
         return "image"
     return preferred
+
 
 
 def _choose_scene_asset(scene, video_group, image_group, used_counts, previous, selected_asset_type):

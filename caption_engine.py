@@ -1,5 +1,6 @@
 import json
 import re
+import wave
 from pathlib import Path
 
 
@@ -307,39 +308,172 @@ def create_groups(
 # FALLBACK TIMING
 # =====================================================
 
-def fallback_alignment(words):
+def _audio_duration(path):
 
-    result=[]
+    try:
 
-    time=0
+        with wave.open(str(path), "rb") as audio:
+
+            frames = audio.getnframes()
+            rate = audio.getframerate()
+
+        if rate:
+            return frames / float(rate)
+
+    except Exception as e:
+
+        print(
+            "Audio duration read failed:",
+            e
+        )
+
+    return 0.0
 
 
-    for word in words:
+def _sentence_parts_alignment(
+        narration,
+        audio_path=None
+):
 
-        duration=0.35
+    """
+    Use the exact sentence boundaries produced by voice_engine.py.
+
+    The voice engine creates one voice_part_N.wav for every narration sentence
+    and inserts the real silence_N.wav after it. Those files therefore give us
+    the exact sentence clock of the final voice.wav even when Whisper is not
+    available. Word timings are then distributed across the actual sentence
+    duration instead of using the obsolete fixed 0.35s-per-word clock.
+    """
+
+    if not audio_path:
+        return []
+
+    audio_path = Path(audio_path)
+    output_dir = audio_path.parent
+
+    sentences = re.split(
+        r'(?<=[.!?])\s+',
+        str(narration or '').strip()
+    )
+    sentences = [s for s in sentences if s]
+
+    if not sentences:
+        return []
+
+    aligned = []
+    cursor = 0.0
+
+    for index, sentence in enumerate(sentences):
+
+        part = output_dir / f"voice_part_{index}.wav"
+        if not part.exists():
+            return []
+
+        part_duration = _audio_duration(part)
+        if part_duration <= 0:
+            return []
+
+        sentence_words = tokenize(sentence)
+        if not sentence_words:
+            return []
+
+        weights = [
+            max(
+                1,
+                len(
+                    re.sub(
+                        r"[^a-zA-Z0-9']+",
+                        "",
+                        word
+                    )
+                )
+            )
+            for word in sentence_words
+        ]
+
+        total_weight = float(sum(weights)) or float(len(sentence_words))
+        word_cursor = cursor
+
+        for word_index, (word, weight) in enumerate(
+                zip(sentence_words, weights)
+        ):
+
+            if word_index == len(sentence_words) - 1:
+                word_end = cursor + part_duration
+            else:
+                word_end = (
+                    word_cursor
+                    + part_duration * (weight / total_weight)
+                )
+
+            aligned.append({
+                "word": word,
+                "start": round(word_cursor, 3),
+                "end": round(
+                    max(word_cursor + 0.01, word_end),
+                    3
+                )
+            })
+
+            word_cursor = word_end
+
+        silence = output_dir / f"silence_{index}.wav"
+        if silence.exists():
+            cursor += part_duration + _audio_duration(silence)
+        else:
+            cursor += part_duration
+
+    return aligned
 
 
-        result.append({
+def fallback_alignment(words, duration=None):
 
-            "word":word,
+    """Fill the supplied real audio duration using text-length weights."""
 
-            "start":
-            round(
-                time,
-                3
-            ),
+    if not words:
+        return []
 
-            "end":
-            round(
-                time+duration,
-                3
+    if duration is None or duration <= 0:
+        duration = 0.35 * len(words)
+
+    weights = [
+        max(
+            1,
+            len(
+                re.sub(
+                    r"[^a-zA-Z0-9']+",
+                    "",
+                    str(word)
+                )
+            )
+        )
+        for word in words
+    ]
+
+    total_weight = float(sum(weights)) or float(len(words))
+    result = []
+    cursor = 0.0
+
+    for index, (word, weight) in enumerate(zip(words, weights)):
+
+        if index == len(words) - 1:
+            end = float(duration)
+        else:
+            end = (
+                cursor
+                + float(duration) * (weight / total_weight)
             )
 
+        result.append({
+            "word": word,
+            "start": round(cursor, 3),
+            "end": round(
+                max(cursor + 0.01, end),
+                3
+            )
         })
 
-
-        time+=duration
-
+        cursor = end
 
     return result
 
@@ -394,8 +528,22 @@ def create_caption_plan(
 
     if not aligned_words:
 
+        aligned_words = _sentence_parts_alignment(
+            narration,
+            audio_path
+        )
+
+    if not aligned_words:
+
+        audio_duration = (
+            _audio_duration(audio_path)
+            if audio_path
+            else 0.0
+        )
+
         aligned_words = fallback_alignment(
-            text_words
+            text_words,
+            audio_duration
         )
 
 
